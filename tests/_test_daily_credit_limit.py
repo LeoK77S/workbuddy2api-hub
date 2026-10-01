@@ -49,22 +49,22 @@ def reset_cache():
 
 
 class CreditGuardSettingsTests(unittest.TestCase):
-    def test_daily_credit_defaults_to_fifty_and_zero_turns_it_off(self):
+    def test_daily_credit_is_off_until_set(self):
         with tempfile.TemporaryDirectory(prefix="credit-set-") as directory:
-            # A fresh install starts capped at 50; an explicit 0 disables it.
-            self.assertEqual(wb_settings.daily_credit_limit(directory), 50)
+            # Off by default, exactly like the other guards here: an install
+            # that upgrades into this feature keeps behaving as before.
+            self.assertEqual(wb_settings.daily_credit_limit(directory), 0)
             self.assertEqual(wb_settings.set_daily_credit_limit(directory, 80), 80)
             self.assertEqual(wb_settings.daily_credit_limit(directory), 80)
             self.assertEqual(wb_settings.set_daily_credit_limit(directory, 0), 0)
             self.assertEqual(wb_settings.daily_credit_limit(directory), 0)
-            # Garbage and negatives collapse like the other setters.
+            # Garbage and negatives collapse to "off" instead of raising.
             self.assertEqual(wb_settings.set_daily_credit_limit(directory, -5), 0)
             self.assertEqual(wb_settings.set_daily_credit_limit(directory, "abc"), 0)
-            # A corrupt stored value keeps the default cap instead of
-            # silently disabling the guard.
+            # A corrupt stored value reads back as off too.
             with open(wb_settings.settings_path(directory), "w", encoding="utf-8") as fh:
                 json.dump({"daily_credit_limit": "lots"}, fh)
-            self.assertEqual(wb_settings.daily_credit_limit(directory), 50)
+            self.assertEqual(wb_settings.daily_credit_limit(directory), 0)
 
     def test_model_daily_token_defaults_to_unlimited(self):
         with tempfile.TemporaryDirectory(prefix="credit-set-") as directory:

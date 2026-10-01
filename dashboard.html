@@ -804,13 +804,13 @@ a:hover{text-decoration:underline}
           <div>
             <h2 style="margin:0">每日积分限额 <em id="setDailyCreditState"></em></h2>
             <div style="font-size:12px;color:var(--dim);margin-top:4px">
-              账号当日消费的积分达到该值后，只允许请求免费模型（目录中标记为 x0.00 的模型），需要花费积分的模型自动切到其他账号；本地时间 0 点后自动恢复。默认 50；填 0 表示关闭。
+              账号当日消费的积分达到该值后，只允许请求免费模型（目录中标记为 x0.00 的模型），需要花费积分的模型自动切到其他账号；本地时间 0 点后自动恢复。填 0 表示关闭（默认）。
             </div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
             <div>
               <div style="font-size:12px;color:var(--dim);margin-bottom:4px">每账号每日上限（积分）</div>
-              <input id="setDailyCreditLimit" type="number" min="0" step="1" value="50"
+              <input id="setDailyCreditLimit" type="number" min="0" step="1" value="0"
                      style="width:150px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--fg);font:inherit">
             </div>
             <button onclick="saveDailyCreditLimit(this)">保存</button>
@@ -2750,7 +2750,7 @@ async function loadSettings(showToast){
         dailyTokState.textContent = dailyTokValue > 0 ? ('(每账号每天 ' + fmt(dailyTokValue) + ' token)') : '(不限)';
         dailyTokState.style.color = dailyTokValue > 0 ? 'var(--accent2)' : 'var(--dim)';
       }
-      const dailyCredValue = Number(data.daily_credit_limit != null ? data.daily_credit_limit : 50);
+      const dailyCredValue = Number(data.daily_credit_limit || 0);
       const dailyCredInput = document.getElementById('setDailyCreditLimit');
       if(dailyCredInput) dailyCredInput.value = String(dailyCredValue);
       const dailyCredState = document.getElementById('setDailyCreditState');

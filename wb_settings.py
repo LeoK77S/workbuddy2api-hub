@@ -20,9 +20,6 @@ import time
 DEFAULT_PANEL_PASSWORD = "admin"
 PBKDF2_ROUNDS = 120_000
 SESSION_TTL = 7 * 24 * 3600
-# New installs start with the daily credit guard on. The value is credits,
-# not tokens: an account that spent this much today serves free models only.
-DEFAULT_DAILY_CREDIT_LIMIT = 50
 
 _lock = threading.RLock()
 
@@ -400,19 +397,14 @@ def daily_credit_limit(accounts_dir):
     would keep burning credits on paid models rotates to another account
     instead of spending the whole balance.
 
-    Unlike the other guards this one is on by default
-    (DEFAULT_DAILY_CREDIT_LIMIT); an explicit 0 in settings.json turns it
-    off, and a corrupt value keeps the default rather than silently
-    disabling the cap.
+    Zero disables the guard, which keeps installs that predate the setting
+    behaving exactly as before.
     """
-    data = load(accounts_dir)
-    if "daily_credit_limit" not in data:
-        return DEFAULT_DAILY_CREDIT_LIMIT
     try:
-        value = int(data.get("daily_credit_limit") or 0)
+        value = int(load(accounts_dir).get("daily_credit_limit") or 0)
     except (TypeError, ValueError):
-        return DEFAULT_DAILY_CREDIT_LIMIT
-    return max(0, value)
+        return 0
+    return value if value > 0 else 0
 
 
 def set_daily_credit_limit(accounts_dir, value):
