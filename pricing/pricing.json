@@ -1,0 +1,564 @@
+{
+  "meta": {
+    "generated_at": "2026-10-02T00:13:20",
+    "base_currency": "CNY",
+    "usd_cny": 7.1,
+    "sources": {
+      "deepseek_official": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+      "openrouter": "https://openrouter.ai/api/v1/models"
+    },
+    "note": "单价均为「每百万 token」；DeepSeek 走峰谷表，其余走单一价。",
+    "holidays": [
+      "2026-01-01",
+      "2026-01-02",
+      "2026-01-03",
+      "2026-02-15",
+      "2026-02-16",
+      "2026-02-17",
+      "2026-02-18",
+      "2026-02-19",
+      "2026-02-20",
+      "2026-02-21",
+      "2026-02-22",
+      "2026-02-23",
+      "2026-04-04",
+      "2026-04-05",
+      "2026-04-06",
+      "2026-05-01",
+      "2026-05-02",
+      "2026-05-03",
+      "2026-05-04",
+      "2026-05-05",
+      "2026-06-19",
+      "2026-06-20",
+      "2026-06-21",
+      "2026-09-25",
+      "2026-09-26",
+      "2026-09-27",
+      "2026-10-01",
+      "2026-10-02",
+      "2026-10-03",
+      "2026-10-04",
+      "2026-10-05",
+      "2026-10-06",
+      "2026-10-07"
+    ],
+    "holidays_source": "国务院办公厅《关于 2026 年部分节假日安排的通知》（国办发明电〔2025〕7号）"
+  },
+  "models": {
+    "deepseek-v4.1-flash": {
+      "display": "DeepSeek-V4.1-Flash",
+      "source": "deepseek_official",
+      "currency": "CNY",
+      "unit": 1000000,
+      "schedule": "deepseek_cn",
+      "peak": {
+        "input_cache_hit": 0.04,
+        "input_cache_miss": 2.0,
+        "output": 8.0
+      },
+      "off_peak": {
+        "input_cache_hit": 0.02,
+        "input_cache_miss": 1.0,
+        "output": 4.0
+      }
+    },
+    "deepseek-v4-flash": {
+      "display": "deepseek-v4-flash",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "deepseek/deepseek-v4-flash",
+      "flat": {
+        "input_cache_hit": 0.008372,
+        "input_cache_miss": 0.04186,
+        "output": 0.08372
+      }
+    },
+    "deepseek-v4-pro": {
+      "display": "DeepSeek-V4-Pro-0813",
+      "source": "deepseek_official",
+      "currency": "CNY",
+      "unit": 1000000,
+      "schedule": "deepseek_cn",
+      "peak": {
+        "input_cache_hit": 0.3,
+        "input_cache_miss": 9.0,
+        "output": 27.0
+      },
+      "off_peak": {
+        "input_cache_hit": 0.15,
+        "input_cache_miss": 4.5,
+        "output": 13.5
+      }
+    },
+    "gpt-6-astra": {
+      "display": "gpt-6-astra",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "openai/gpt-6-astra",
+      "flat": {
+        "input_cache_hit": 1.0,
+        "input_cache_miss": 10.0,
+        "output": 50.0
+      }
+    },
+    "gpt-5.6-sol": {
+      "display": "gpt-5.6-sol",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "openai/gpt-5.6-sol",
+      "flat": {
+        "input_cache_hit": 0.2,
+        "input_cache_miss": 2.0,
+        "output": 10.0
+      }
+    },
+    "gpt-5.6-terra": {
+      "display": "gpt-5.6-terra",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "openai/gpt-5.6-terra",
+      "flat": {
+        "input_cache_hit": 0.2,
+        "input_cache_miss": 2.0,
+        "output": 12.0
+      }
+    },
+    "gpt-5.6-luna": {
+      "display": "gpt-5.6-luna",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "openai/gpt-5.6-luna",
+      "flat": {
+        "input_cache_hit": 0.02,
+        "input_cache_miss": 0.2,
+        "output": 1.2
+      }
+    },
+    "gpt-5.5": {
+      "display": "gpt-5.5",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "openai/gpt-5.5",
+      "flat": {
+        "input_cache_hit": 0.5,
+        "input_cache_miss": 5.0,
+        "output": 30.0
+      }
+    },
+    "gpt-5.4": {
+      "display": "gpt-5.4",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "openai/gpt-5.4",
+      "flat": {
+        "input_cache_hit": 0.25,
+        "input_cache_miss": 2.5,
+        "output": 15.0
+      }
+    },
+    "grok-4.7": {
+      "display": "grok-4.7",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "x-ai/grok-4.7",
+      "flat": {
+        "input_cache_hit": 0.5,
+        "input_cache_miss": 2.0,
+        "output": 6.0
+      }
+    },
+    "gpt-5.3-codex": {
+      "display": "gpt-5.3-codex",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "openai/gpt-5.3-codex",
+      "flat": {
+        "input_cache_hit": 0.175,
+        "input_cache_miss": 1.75,
+        "output": 14.0
+      }
+    },
+    "gemini-3.5-flash": {
+      "display": "gemini-3.5-flash",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "google/gemini-3.5-flash",
+      "flat": {
+        "input_cache_hit": 0.15,
+        "input_cache_miss": 1.5,
+        "output": 9.0
+      }
+    },
+    "kimi-k3": {
+      "display": "kimi-k3",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "moonshotai/kimi-k3",
+      "flat": {
+        "input_cache_hit": 0.6638,
+        "input_cache_miss": 0.6638,
+        "output": 10.0
+      }
+    },
+    "glm-5.3": {
+      "display": "glm-5.3",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "z-ai/glm-5.3",
+      "flat": {
+        "input_cache_hit": 0.1775,
+        "input_cache_miss": 0.2219,
+        "output": 3.39
+      }
+    },
+    "glm-5.3-flash": {
+      "display": "glm-5.3-flash",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "z-ai/glm-5.3-flash",
+      "flat": {
+        "input_cache_hit": 0.03,
+        "input_cache_miss": 0.15,
+        "output": 0.5
+      }
+    },
+    "glm-5.2": {
+      "display": "glm-5.2",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "z-ai/glm-5.2",
+      "flat": {
+        "input_cache_hit": 0.26,
+        "input_cache_miss": 0.41,
+        "output": 3.99
+      }
+    },
+    "glm-5.1": {
+      "display": "glm-5.1",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "z-ai/glm-5.1",
+      "flat": {
+        "input_cache_hit": 0.17914,
+        "input_cache_miss": 0.9646,
+        "output": 3.0316
+      }
+    },
+    "glm-5.0-turbo": {
+      "display": "glm-5-turbo",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "z-ai/glm-5-turbo",
+      "flat": {
+        "input_cache_hit": 0.24,
+        "input_cache_miss": 1.2,
+        "output": 4.0
+      }
+    },
+    "glm-4.6": {
+      "display": "glm-4.6",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "z-ai/glm-4.6",
+      "flat": {
+        "input_cache_hit": 0.08,
+        "input_cache_miss": 0.43,
+        "output": 1.75
+      }
+    },
+    "glm-4.6v": {
+      "display": "glm-4.6v",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "z-ai/glm-4.6v",
+      "flat": {
+        "input_cache_hit": 0.05,
+        "input_cache_miss": 0.3,
+        "output": 0.9
+      }
+    },
+    "glm-5v-turbo": {
+      "display": "glm-5v-turbo",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "z-ai/glm-5v-turbo",
+      "flat": {
+        "input_cache_hit": 0.24,
+        "input_cache_miss": 1.2,
+        "output": 4.0
+      }
+    },
+    "kimi-k3-1": {
+      "display": "kimi-k3",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "moonshotai/kimi-k3",
+      "flat": {
+        "input_cache_hit": 0.6638,
+        "input_cache_miss": 0.6638,
+        "output": 10.0
+      }
+    },
+    "kimi-k2.6": {
+      "display": "kimi-k2.6",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "moonshotai/kimi-k2.6",
+      "flat": {
+        "input_cache_hit": 0.07312,
+        "input_cache_miss": 0.43415,
+        "output": 1.828
+      }
+    },
+    "kimi-k2.7": {
+      "display": "kimi-k2.7-code",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "moonshotai/kimi-k2.7-code",
+      "flat": {
+        "input_cache_hit": 0.18,
+        "input_cache_miss": 0.6712,
+        "output": 3.35
+      }
+    },
+    "kimi-k2.5": {
+      "display": "kimi-k2.5",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "moonshotai/kimi-k2.5",
+      "flat": {
+        "input_cache_hit": 0.07,
+        "input_cache_miss": 0.45,
+        "output": 2.25
+      }
+    },
+    "kimi-k2-thinking": {
+      "display": "kimi-k2-thinking",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "moonshotai/kimi-k2-thinking",
+      "flat": {
+        "input_cache_hit": null,
+        "input_cache_miss": 0.6,
+        "output": 2.5
+      }
+    },
+    "hy3": {
+      "display": "hy3",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "tencent/hy3",
+      "flat": {
+        "input_cache_hit": 0.020625,
+        "input_cache_miss": 0.0825,
+        "output": 0.33
+      }
+    },
+    "hy3-x": {
+      "display": "hy3",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "tencent/hy3",
+      "flat": {
+        "input_cache_hit": 0.020625,
+        "input_cache_miss": 0.0825,
+        "output": 0.33
+      }
+    },
+    "hy4-preview": {
+      "display": "hy4-preview",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "tencent/hy4-preview",
+      "flat": {
+        "input_cache_hit": 0.0378,
+        "input_cache_miss": 0.7506,
+        "output": 2.2509
+      }
+    },
+    "hy4-preview-f": {
+      "display": "hy4-preview",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "tencent/hy4-preview",
+      "flat": {
+        "input_cache_hit": 0.0378,
+        "input_cache_miss": 0.7506,
+        "output": 2.2509
+      }
+    },
+    "hy4-preview-dev": {
+      "display": "hy4-preview",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "tencent/hy4-preview",
+      "flat": {
+        "input_cache_hit": 0.0378,
+        "input_cache_miss": 0.7506,
+        "output": 2.2509
+      }
+    },
+    "hy4-preview-x": {
+      "display": "hy4-preview",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "tencent/hy4-preview",
+      "flat": {
+        "input_cache_hit": 0.0378,
+        "input_cache_miss": 0.7506,
+        "output": 2.2509
+      }
+    },
+    "minimax-m2.5": {
+      "display": "minimax-m2.5",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "minimax/minimax-m2.5",
+      "flat": {
+        "input_cache_hit": 0.027,
+        "input_cache_miss": 0.27,
+        "output": 1.08
+      }
+    },
+    "minimax-m2.7": {
+      "display": "minimax-m2.7",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "minimax/minimax-m2.7",
+      "flat": {
+        "input_cache_hit": 0.042,
+        "input_cache_miss": 0.21,
+        "output": 0.84
+      }
+    },
+    "minimax-m3": {
+      "display": "minimax-m3",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "minimax/minimax-m3",
+      "flat": {
+        "input_cache_hit": 0.06,
+        "input_cache_miss": 0.3,
+        "output": 1.2
+      }
+    },
+    "hunyuan-2.0-instruct": {
+      "display": "hunyuan-a13b-instruct",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "tencent/hunyuan-a13b-instruct",
+      "flat": {
+        "input_cache_hit": null,
+        "input_cache_miss": 0.14,
+        "output": 0.57
+      }
+    },
+    "hunyuan-chat": {
+      "display": "hunyuan-a13b-instruct",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "tencent/hunyuan-a13b-instruct",
+      "flat": {
+        "input_cache_hit": null,
+        "input_cache_miss": 0.14,
+        "output": 0.57
+      }
+    },
+    "deepseek-v3-2-volc": {
+      "display": "deepseek-v3.2",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "deepseek/deepseek-v3.2",
+      "flat": {
+        "input_cache_hit": 0.028,
+        "input_cache_miss": 0.28,
+        "output": 0.42
+      }
+    },
+    "deepseek-v3-1-volc": {
+      "display": "deepseek-chat-v3.1",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "deepseek/deepseek-chat-v3.1",
+      "flat": {
+        "input_cache_hit": 0.13,
+        "input_cache_miss": 0.25,
+        "output": 0.95
+      }
+    },
+    "deepseek-v3-1": {
+      "display": "deepseek-chat-v3.1",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "deepseek/deepseek-chat-v3.1",
+      "flat": {
+        "input_cache_hit": 0.13,
+        "input_cache_miss": 0.25,
+        "output": 0.95
+      }
+    },
+    "deepseek-v3-0324": {
+      "display": "deepseek-chat-v3-0324",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "deepseek/deepseek-chat-v3-0324",
+      "flat": {
+        "input_cache_hit": 0.11,
+        "input_cache_miss": 0.29,
+        "output": 1.14
+      }
+    },
+    "deepseek-r1-0528": {
+      "display": "deepseek-r1-0528",
+      "source": "openrouter",
+      "currency": "USD",
+      "unit": 1000000,
+      "or_id": "deepseek/deepseek-r1-0528",
+      "flat": {
+        "input_cache_hit": 0.35,
+        "input_cache_miss": 0.5,
+        "output": 2.15
+      }
+    }
+  }
+}

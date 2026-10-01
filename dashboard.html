@@ -642,6 +642,11 @@ a:hover{text-decoration:underline}
         <div class="v" id="kpiReqCount">0 次</div>
         <div class="s" id="kpiReqSuccess">成功率 100% · 失败 0</div>
       </div>
+      <div class="card warn">
+        <div class="k">API 等价花费 <span id="kpiCostRange" style="font-size:11px;font-weight:400;color:var(--dim)"></span></div>
+        <div class="v" id="kpiCostValue">—</div>
+        <div class="s" id="kpiCostDetail">按各模型官方 API 定价折算 <span id="kpiCostToggle"></span></div>
+      </div>
     </div>
 
     <!-- 表格 1：各账号用量透视与各模型消耗明细 -->
@@ -661,6 +666,7 @@ a:hover{text-decoration:underline}
               <th>消耗总 Token</th>
               <th>消耗积分 (全出口)</th>
               <th style="text-align:left">调用的模型分布明细 (请求数 · 消耗)</th>
+              <th style="color:var(--warn)">官方价估算</th>
             </tr>
           </thead>
           <tbody id="analyticsAccountTbody"></tbody>
@@ -1626,6 +1632,47 @@ const fmt = n => (n ?? 0).toLocaleString('en-US');
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ms = v => v == null ? '—' : (v >= 1000 ? (v/1000).toFixed(2) + ' s' : Math.round(v) + ' ms');
 const pct = v => v == null ? '—' : v.toFixed(1) + '%';
+
+/* ---- 官方价估算（等价花费） ---- */
+// 后端按权威定价快照把每条请求的 token 折算成人民币；这里只负责展示，
+// 展示货币默认人民币，可切美元（按接口返回的 usd_cny 折算，无需重新请求）。
+let costCurrency = 'CNY';
+try { if(localStorage.getItem('wb-cost-currency') === 'USD') costCurrency = 'USD'; } catch(e) {}
+// 汇率由 /usage、/usage/recent、/usage/analytics 的 usd_cny 字段更新。
+let costUsdRate = 7.1;
+function costSymbol(){ return costCurrency === 'USD' ? '$' : '￥'; }
+// 小额保留更多小数位，避免 0.00x 被显示成 0.00；与官方价估算的展示口径一致。
+function fmtCost(cny){
+  if(cny == null || cny === '') return '—';
+  const raw = Number(cny) || 0;
+  const n = costCurrency === 'USD' ? raw / (costUsdRate || 1) : raw;
+  const a = Math.abs(n);
+  if(a > 0 && a < 0.01) return costSymbol() + n.toFixed(4);
+  if(a < 1) return costSymbol() + n.toFixed(3);
+  if(a < 1000) return costSymbol() + n.toFixed(2);
+  return costSymbol() + n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+function setCostCurrency(cur){
+  costCurrency = (cur === 'USD') ? 'USD' : 'CNY';
+  try { localStorage.setItem('wb-cost-currency', costCurrency); } catch(e) {}
+  renderCostToggle();
+  // 已经渲染出来的表格/卡片就地换算重画，不必等下一轮轮询。
+  if(typeof refreshAllCostViews === 'function') refreshAllCostViews();
+}
+function renderCostToggle(){
+  document.querySelectorAll('.cost-toggle').forEach(el => {
+    el.querySelectorAll('button').forEach(b => {
+      b.classList.toggle('active', b.dataset.cur === costCurrency);
+    });
+  });
+}
+// CNY/USD 二选一的切换按钮组；用于费用卡片与表格标题区。
+function costToggleHtml(){
+  return '<span class="cost-toggle" style="display:inline-flex;gap:4px">'
+    + '<button type="button" class="range-btn' + (costCurrency === 'CNY' ? ' active' : '') + '" data-cur="CNY" onclick="setCostCurrency(\'CNY\')">￥ 人民币</button>'
+    + '<button type="button" class="range-btn' + (costCurrency === 'USD' ? ' active' : '') + '" data-cur="USD" onclick="setCostCurrency(\'USD\')">$ 美元</button>'
+    + '</span>';
+}
 // 输入 / 输出 / 思考 三个数字，各自一色，斜杠分隔。思考为 0 也写出来，
 // 列的形状因此固定，不会因某个模型不推理就缩短。
 const tripleTokens = (inp, out, think) =>
@@ -2332,6 +2379,15 @@ async function refresh(){
   try { await refreshInner(); }
   finally { REFRESH_BUSY = false; }
 }
+// 展示货币切换后，把带费用的视图就地重画：各接口有服务端 TTL 缓存，
+// 重新拉取的代价很小，不必为每处维护一份数据副本。
+function refreshAllCostViews(){
+  refresh();
+  if(currentMainTab === 'analytics'){
+    loadAnalytics();
+    loadAnalyticsMatrix();
+  }
+}
 async function refreshInner(){
   let usage, recent, perf;
   try{
@@ -2366,27 +2422,34 @@ async function refreshInner(){
   });
 
   // An account parked by the low-credit guard is enabled but not serving, so
-  // the pool card must not count it as "正常".
+  // the pool card must not count it as "正常". The same goes for an account
+  // capped by the daily credit guard: it still serves free models, but a
+  // paid request will rotate away from it.
   const accts = window.ACCOUNTS || [];
-  const activeAccts = accts.filter(a => a.enabled && !a.reserveBlocked && !a.dailyLimitBlocked).length;
+  const activeAccts = accts.filter(a => a.enabled && !a.reserveBlocked && !a.dailyLimitBlocked && !a.creditLimitReached).length;
   const totalAccts = accts.length;
   const parkedAccts = accts.filter(a => a.enabled && a.reserveBlocked).length;
   const disabledAccts = accts.filter(a => !a.enabled).length;
   const dailyAccts = accts.filter(a => a.enabled && a.dailyLimitBlocked).length;
+  const creditAccts = accts.filter(a => a.enabled && a.creditLimitReached && !a.dailyLimitBlocked).length;
   const poolNotes = [];
   if(parkedAccts) poolNotes.push(parkedAccts + ' 个保留积分');
   if(dailyAccts) poolNotes.push(dailyAccts + ' 个达日限额');
+  if(creditAccts) poolNotes.push(creditAccts + ' 个达积分限额');
   if(disabledAccts) poolNotes.push(disabledAccts + ' 个停用');
   const poolSub = poolNotes.length ? poolNotes.join(' · ') : '全部启用 · 状态健康';
   const pctRemain = totSize > 0 ? ((totRemain / totSize) * 100).toFixed(1) + '%' : '';
   const subCredit = totSize > 0 ? ('总积分 ' + fmt(totSize) + ' · 剩余 ' + pctRemain) : '当前账号正常';
   const succStr = perf.success_rate_pct != null ? pct(perf.success_rate_pct) : '100.0%';
   const errSub = perf.errors ? (perf.errors + ' 次异常拦截') : '服务运行平稳';
+  // 等价花费的汇率随 /usage 载荷更新（后端定价快照里的值）。
+  if(t.usd_cny) costUsdRate = Number(t.usd_cny) || costUsdRate;
 
   document.getElementById('cards').innerHTML =
     card('可用账号池', activeAccts + ' <span style="font-size:13px;font-weight:400;color:var(--dim)">/ ' + totalAccts + ' 正常</span>', poolSub, 'accent') +
     card('积分余额', hasCreds ? (fmt(totRemain) + ' <span style="font-size:13px;font-weight:400;color:var(--dim)">积分</span>') : '正常可用', subCredit, 'accent2') +
     card('网关调用量', fmt(t.requests) + ' <span style="font-size:13px;font-weight:400;color:var(--dim)">次</span>', '本出口累计消耗 ' + fmt(t.total_tokens) + ' Token · ' + Number(t.credit || 0).toFixed(2) + ' 积分', '') +
+    card('官方价估算', fmtCost(t.cost_cny), '按各模型官方 API 定价折算' + costToggleHtml(), 'warn') +
     card('请求成功率', succStr, errSub, perf.errors ? 'warn' : 'accent2');
 
   const total = recent.total || 0;
@@ -2434,7 +2497,7 @@ async function refreshInner(){
     return (m && m.nickname) ? m.nickname : String(uid).slice(0,8);
   };
   document.getElementById('recent').innerHTML = rows.length ?
-    '<table class="data-cards"><thead><tr><th>时间</th><th>模型</th><th>账号</th><th>模式</th><th>结果</th><th>耗时</th><th>首字</th><th>速度</th><th>输入</th><th>输出</th><th>思考</th><th>缓存</th><th>总 token</th><th>积分</th></tr></thead><tbody>'
+    '<table class="data-cards"><thead><tr><th>时间</th><th>模型</th><th>账号</th><th>模式</th><th>结果</th><th>耗时</th><th>首字</th><th>速度</th><th>输入</th><th>输出</th><th>思考</th><th>缓存</th><th>总 token</th><th>积分</th><th style="color:var(--warn)">官方价估算</th></tr></thead><tbody>'
     + rows.map(r => '<tr>'
         + '<td class="mono" data-label="时间">' + esc((r.iso||'').replace('T',' ').slice(5)) + '</td>'
         + '<td class="mono" data-label="模型">' + esc(r.model) + '</td>'
@@ -2450,6 +2513,7 @@ async function refreshInner(){
         + '<td data-label="缓存">' + (r.cache_hit_pct!=null ? r.cache_hit_pct+'%' : '—') + '</td>'
         + '<td data-label="总 token"><b>' + fmt(r.total_tokens) + '</b></td>'
         + '<td data-label="积分" style="color:var(--accent2)">' + (r.credit != null ? Number(r.credit).toFixed(2) : '—') + '</td>'
+        + '<td data-label="官方价估算" style="color:var(--warn)" title="' + (r.cost_peak === true ? '高峰时段计价' : r.cost_peak === false ? '非高峰时段计价' : (r.cost_cny == null ? '该模型暂无定价数据' : '按官方 API 定价折算')) + '">' + fmtCost(r.cost_cny) + '</td>'
       + '</tr>').join('') + '</tbody></table>'
     : '<div class="empty">还没有请求记录</div>';
 }
@@ -3960,16 +4024,18 @@ function renderPerfMatrix(usage, perf){
      * barely-used row cannot outvote a heavily-used one.
      */
     const filtering = !!(matrixAcctFilter || matrixModelFilter);
-    let sumReq, sumErr, sumTok, sumP, sumC, sumR, totTtft, totTps, totWall, totCache;
+    let sumReq, sumErr, sumTok, sumP, sumC, sumR, totTtft, totTps, totWall, totCache, sumCost;
     if(!filtering){
       sumReq = usage.requests; sumErr = perf.errors; sumTok = usage.total_tokens;
       sumP = usage.prompt_tokens; sumC = usage.completion_tokens; sumR = usage.reasoning_tokens;
+      // 官方价估算的合计：未筛选时取出口级汇总（与上面的数字同源）。
+      sumCost = usage.cost_cny || 0;
       totTtft = perf.ttft_ms ? (ms(perf.ttft_ms.avg) + " (P50 " + ms(perf.ttft_ms.p50) + ")") : "-";
       totTps = perf.tokens_per_sec ? (perf.tokens_per_sec.avg.toFixed(1) + " tok/s") : "-";
       totWall = perf.wall_ms ? ms(perf.wall_ms.avg) : "-";
       totCache = perf.cache_hit_pct ? (perf.cache_hit_pct.avg.toFixed(1) + "%") : "-";
     } else {
-      sumReq = 0; sumErr = 0; sumTok = 0; sumP = 0; sumC = 0; sumR = 0;
+      sumReq = 0; sumErr = 0; sumTok = 0; sumP = 0; sumC = 0; sumR = 0; sumCost = 0;
       let ttftW = 0, ttftN = 0, tpsW = 0, tpsN = 0, wallW = 0, wallN = 0, cacheW = 0, cacheN = 0;
       rowsData.forEach(m => {
         sumReq += m.requests || 0;
@@ -3977,6 +4043,7 @@ function renderPerfMatrix(usage, perf){
         sumP += m.prompt_tokens || 0;
         sumC += m.completion_tokens || 0;
         sumR += m.reasoning_tokens || 0;
+        sumCost += m.cost_cny || 0;
         const mp = ((perf && perf.by_model_realm) || {})[m.id] || {};
         const mpAcctAll = ((perf && perf.by_model_acct) || {})[m.id] || {};
         const mpRealm = m.realm ? (mp[m.realm] || null) : null;
@@ -4009,6 +4076,7 @@ function renderPerfMatrix(usage, perf){
       + '<td data-label="端到端耗时">' + totWall + '</td>'
       + '<td data-label="缓存命中">' + totCache + '</td>'
       + '<td data-label="用量占比">100%</td>'
+      + '<td data-label="官方价估算" style="color:var(--warn)">' + fmtCost(sumCost) + '</td>'
       + '</tr>';
 
     const rows = rowsData.map(m => {
@@ -4090,6 +4158,9 @@ function renderPerfMatrix(usage, perf){
         + '<td data-label="端到端耗时">' + m_wall + '</td>'
         + '<td data-label="缓存命中">' + m_cache + '</td>'
         + '<td style="min-width:90px" data-label="用量占比"><span class="bar-fill" style="width:' + Math.max(3, pctTok) + '%"></span> <span style="font-size:11px;color:var(--dim)">' + pctTok + '%</span></td>'
+        + '<td data-label="官方价估算" style="color:var(--warn)" title="官方价估算：按该行（模型·区域·账号）的 token 消耗折算">'
+        +   ((m.cost_cny || 0) > 0 ? fmtCost(m.cost_cny) : '<span style="color:var(--dim)">—</span>')
+        + '</td>'
         + '</tr>';
     }).join('');
 
@@ -4108,6 +4179,7 @@ function renderPerfMatrix(usage, perf){
       + '<th style="text-align:left">账号</th>'
       + '<th>请求数</th><th>失败</th><th>总 Token</th><th style="min-width:190px">输入 / 输出 / 思考</th>'
       + '<th>首字延迟 (TTFT)</th><th>生成速度</th><th>端到端耗时</th><th>缓存命中率</th><th>用量占比</th>'
+      + '<th style="color:var(--warn)">官方价估算</th>'
       + '</tr></thead><tbody>' + summaryRow + rows + '</tbody></table>';
   }
 
@@ -4182,6 +4254,15 @@ function renderAnalytics(data){
   if(elReqCount) elReqCount.textContent = fmt(currentSum.requests || 0) + ' 次';
   if(elReqSuccess) elReqSuccess.textContent = '成功率 ' + successPct + '% · 失败 ' + (currentSum.errors || 0);
 
+  // KPI 6: API 等价花费（跟随范围切换；货币切换按钮挂在这里）
+  if(data.usd_cny) costUsdRate = Number(data.usd_cny) || costUsdRate;
+  const elCostRange = document.getElementById('kpiCostRange');
+  const elCostValue = document.getElementById('kpiCostValue');
+  const elCostDetail = document.getElementById('kpiCostDetail');
+  if(elCostRange) elCostRange.textContent = '(' + rangeLabel() + ')';
+  if(elCostValue) elCostValue.innerHTML = fmtCost(currentSum.cost_cny != null ? currentSum.cost_cny : 0);
+  if(elCostDetail) elCostDetail.innerHTML = '按各模型官方 API 定价折算 ' + costToggleHtml();
+
   // Table 1: 账号透视表
   const acctTbody = document.getElementById('analyticsAccountTbody');
   const acctCountEm = document.getElementById('analyticsAcctCount');
@@ -4235,6 +4316,9 @@ function renderAnalytics(data){
           + '<td><b style="color:var(--accent)">' + fmt(st.total_tokens || 0) + '</b></td>'
           + '<td><b style="color:var(--accent2)">' + (st.credit != null ? Number(st.credit).toFixed(2) : '0.00') + '</b></td>'
           + '<td style="text-align:left;max-width:440px">' + pills + '</td>'
+          + '<td style="color:var(--warn)" title="官方价估算：按各模型官方 API 定价折算，覆盖该账号在所选区间内的请求">'
+          +   (st.cost_cny != null && st.cost_cny > 0 ? fmtCost(st.cost_cny) : '<span style="color:var(--dim)">—</span>')
+          + '</td>'
           + '</tr>';
       }).join('');
     }
