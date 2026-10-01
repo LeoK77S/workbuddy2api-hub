@@ -24,7 +24,6 @@ os.environ["ACCOUNTS_DIR"] = os.path.join(_TMP, "accounts")
 os.environ["WB_PROXY_USAGE_DIR"] = _TMP
 os.makedirs(os.environ["ACCOUNTS_DIR"], exist_ok=True)
 
-import _fetch_pricing as FP
 import wb_pricing
 import wb_proxy as P
 
@@ -247,45 +246,45 @@ class PricingMatcherTests(unittest.TestCase):
     """
 
     def test_normalize_ignores_case_and_punctuation(self):
-        self.assertEqual(FP.normalize("hy4-preview-f"),
-                         FP.normalize("HY4.Preview_F"))
-        self.assertEqual(FP.normalize(None), "")
+        self.assertEqual(wb_pricing.normalize("hy4-preview-f"),
+                         wb_pricing.normalize("HY4.Preview_F"))
+        self.assertEqual(wb_pricing.normalize(None), "")
 
     def test_auto_match_wants_an_exact_unique_name(self):
-        by_norm = FP.index_openrouter({
+        by_norm = wb_pricing.index_openrouter({
             "vendor/some-model": {},
             "other/another": {},
         })
-        self.assertEqual(FP.auto_match("some-model", by_norm), "vendor/some-model")
-        self.assertEqual(FP.auto_match("Some.Model", by_norm), "vendor/some-model")
+        self.assertEqual(wb_pricing.auto_match("some-model", by_norm), "vendor/some-model")
+        self.assertEqual(wb_pricing.auto_match("Some.Model", by_norm), "vendor/some-model")
         # Two vendors publishing the same leaf name is too ambiguous to guess.
-        ambiguous = FP.index_openrouter({"a/dup": {}, "b/dup": {}})
-        self.assertIsNone(FP.auto_match("dup", ambiguous))
-        self.assertIsNone(FP.auto_match("no-such-model", by_norm))
+        ambiguous = wb_pricing.index_openrouter({"a/dup": {}, "b/dup": {}})
+        self.assertIsNone(wb_pricing.auto_match("dup", ambiguous))
+        self.assertIsNone(wb_pricing.auto_match("no-such-model", by_norm))
 
     def test_index_drops_variant_suffixes(self):
         # :free / :batch are separate products with their own prices; keeping
         # them would make an equally-named base model ambiguous.
         self.assertEqual(
-            FP.index_openrouter({"vendor/m:free": {}, "vendor/m:batch": {}}), {})
+            wb_pricing.index_openrouter({"vendor/m:free": {}, "vendor/m:batch": {}}), {})
 
     def test_resolve_prefers_the_override_table(self):
         or_models = {"tencent/hy4-preview": {"prompt": "0.000001"}}
-        by_norm = FP.index_openrouter(or_models)
-        self.assertEqual(FP.resolve("hy4-preview-f", or_models, by_norm),
+        by_norm = wb_pricing.index_openrouter(or_models)
+        self.assertEqual(wb_pricing.resolve("hy4-preview-f", or_models, by_norm),
                          ("tencent/hy4-preview", True))
         # An override that is missing from the fetched list falls through to
         # "unpriced" rather than pointing at a non-existent entry.
-        self.assertEqual(FP.resolve("hy4-preview-f", {}, {}), (None, False))
+        self.assertEqual(wb_pricing.resolve("hy4-preview-f", {}, {}), (None, False))
 
     def test_overrides_point_at_openrouter_shaped_ids(self):
         # A typo in the override table silently unprices the model.
-        for hub_id, ref in FP.OVERRIDES.items():
+        for hub_id, ref in wb_pricing.OVERRIDES.items():
             self.assertIn("/", ref, hub_id)
             self.assertNotIn(":", ref, hub_id)
 
     def test_bands_cover_both_kinds_of_condition(self):
-        bands = FP.bands_from_overrides({"overrides": [
+        bands = wb_pricing.bands_from_overrides({"overrides": [
             {"min_prompt_tokens": 200000, "prompt": "0.000006",
              "completion": "0.0000225"},
             {"utc_start": 0, "utc_end": 1600, "prompt": "0.000000834",
@@ -311,29 +310,29 @@ class PricingMatcherTests(unittest.TestCase):
         self.assertEqual((bands[2]["start"], bands[2]["end"]), (1600, 2400))
 
     def test_bands_need_a_condition(self):
-        self.assertEqual(FP.bands_from_overrides({}), [])
+        self.assertEqual(wb_pricing.bands_from_overrides({}), [])
         # An entry carrying no condition repeats the base price: not a band.
-        self.assertEqual(FP.bands_from_overrides({"overrides": [
+        self.assertEqual(wb_pricing.bands_from_overrides({"overrides": [
             {"prompt": "0.00001", "completion": "0.00005"}]}), [])
         # The audio/cache-write axes have no token count in the local usage
         # log, so an entry priced only on them is not a band either.
-        self.assertEqual(FP.bands_from_overrides({"overrides": [
+        self.assertEqual(wb_pricing.bands_from_overrides({"overrides": [
             {"audio": "0.00002", "input_audio_cache": "0.000004"}]}), [])
 
     def test_snapshot_reflects_the_matchers_choice(self):
         # hy4-preview-f only exists under a different name upstream, so it
         # must appear in the snapshot through the override.
         entry = self._snapshot_entry("hy4-preview-f")
-        self.assertEqual(entry["or_id"], FP.OVERRIDES["hy4-preview-f"])
+        self.assertEqual(entry["or_id"], wb_pricing.OVERRIDES["hy4-preview-f"])
         self.assertEqual(entry["source"], "openrouter")
         # A model the catalogue knows and OpenRouter names identically is
         # matched automatically, with no override behind it.
-        self.assertNotIn("kimi-k2.6", FP.OVERRIDES)
+        self.assertNotIn("kimi-k2.6", wb_pricing.OVERRIDES)
         auto = self._snapshot_entry("kimi-k2.6")
         self.assertEqual(auto["or_id"], "moonshotai/kimi-k2.6")
 
     def test_catalogue_ids_are_unique(self):
-        ids = FP.hub_model_ids()
+        ids = wb_pricing.hub_model_ids()
         self.assertIn("hy4-preview-f", ids)
         self.assertEqual(len(ids), len(set(ids)))
 
@@ -341,6 +340,134 @@ class PricingMatcherTests(unittest.TestCase):
         entry = wb_pricing.load_pricing()["models"].get(mid)
         self.assertIsNotNone(entry, "snapshot has no entry for %s" % mid)
         return entry
+
+
+class PricingPolicyTests(unittest.TestCase):
+    """Prices are stored per model, de-duplicated, and referenced by rows."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="wb-price-policy-")
+        self._previous = wb_pricing.data_dir()
+        wb_pricing.set_data_dir(self.dir)
+        # Real, recent timestamps: the refresher stamps what it records with
+        # the wall clock, and invented epochs would look like the distant past.
+        self.now = time.time()
+
+    def tearDown(self):
+        wb_pricing.set_data_dir(self._previous)
+
+    def _record(self, models, at):
+        """Register a fetched snapshot the way the refresher does."""
+        doc = {"meta": {"base_currency": "CNY", "usd_cny": 7.1}, "models": models}
+        return wb_pricing.record_policies(doc, at=at)
+
+    @staticmethod
+    def _entry(rate, or_id="vendor/m"):
+        return {"display": "m", "source": "openrouter", "currency": "USD",
+                "unit": 1000000, "or_id": or_id,
+                "flat": {"input_cache_hit": rate, "input_cache_miss": rate,
+                         "output": rate}}
+
+    def test_a_price_seen_twice_is_stored_once(self):
+        # A -> B -> A: three fetches, two policies, and the third one points
+        # back at the first rather than writing a copy.
+        _n, moved, first = self._record({"m": self._entry(1.0)}, self.now - 7200)
+        _n, _c, second = self._record({"m": self._entry(2.0)}, self.now - 3600)
+        _n, back, third = self._record({"m": self._entry(1.0)}, self.now - 60)
+        self.assertTrue(moved and back)
+        self.assertEqual(len(wb_pricing.load_policies()), 2)
+        self.assertEqual(first["m"], third["m"])
+        self.assertNotEqual(first["m"], second["m"])
+        # Switching back is a real change, so all three steps stay on the
+        # timeline - it is the *policy* that is shared, not the history.
+        self.assertEqual(len(wb_pricing.load_timeline()), 3)
+
+    def test_an_unchanged_price_does_not_grow_the_timeline(self):
+        self._record({"m": self._entry(1.0)}, self.now - 3600)
+        added, changed, _a = self._record({"m": self._entry(1.0)}, self.now - 60)
+        self.assertEqual(added, 0)
+        self.assertFalse(changed)
+        self.assertEqual(len(wb_pricing.load_timeline()), 1)
+
+    def test_the_current_assignment_says_what_is_in_force(self):
+        self._record({"m": self._entry(1.0)}, self.now - 3600)
+        _n, _c, second = self._record({"m": self._entry(2.0)}, self.now - 60)
+        at, assignment = wb_pricing.current_assignment()
+        self.assertEqual(assignment["m"], second["m"])
+        self.assertEqual(wb_pricing.current_policy_id("m"), second["m"])
+        self.assertAlmostEqual(at, self.now - 60, places=3)
+
+    def test_a_row_is_priced_by_the_policy_it_references(self):
+        self._record({"m": self._entry(1.0)}, self.now - 7200)
+        _n, _c, second = self._record({"m": self._entry(2.0)}, self.now - 3600)
+        older = [p for p in wb_pricing.load_policies().values()
+                 if p["flat"]["input_cache_miss"] == 1.0][0]
+        # A row carrying the older reference keeps its price even though a
+        # newer policy is in force - that is what the reference buys.
+        got = wb_pricing.cost_for_row(
+            {"model": "m", "at": self.now - 60, "prompt_tokens": 1000000,
+             "cost_policy": older["id"]})
+        self.assertAlmostEqual(got["cny"], 1.0 * 7.1, places=6)
+        self.assertEqual(got["source"], older["id"])
+        self.assertFalse(got["backfilled"])
+        # A row without a reference is resolved from the timeline.
+        got = wb_pricing.cost_for_row(
+            {"model": "m", "at": self.now - 60, "prompt_tokens": 1000000})
+        self.assertAlmostEqual(got["cny"], 2.0 * 7.1, places=6)
+        self.assertEqual(got["source"], second["m"])
+
+    def test_a_row_from_before_a_policy_existed_is_backfilled(self):
+        # "m" had no price at that moment: the first one ever taken stands in,
+        # and the row is marked so the panel can say so.
+        self._record({"other": self._entry(9.0, "vendor/o")}, self.now - 7200)
+        self._record({"m": self._entry(5.0)}, self.now - 3600)
+        got = wb_pricing.cost_for_row(
+            {"model": "m", "at": self.now - 5400, "prompt_tokens": 1000000})
+        self.assertTrue(got["backfilled"])
+        self.assertAlmostEqual(got["cny"], 5.0 * 7.1, places=6)
+
+    def test_no_policies_at_all_falls_back_to_the_factory_snapshot(self):
+        got = wb_pricing.cost_for_row(
+            {"model": "deepseek-v4.1-flash", "at": self.now,
+             "prompt_tokens": 1000000})
+        self.assertTrue(got["known"])
+        self.assertEqual(got["source"], "builtin")
+        self.assertIsNone(got["source_at"])
+
+    def test_prune_spares_the_live_policy(self):
+        # Two policies for "m", nothing references either; the live one stays.
+        self._record({"m": self._entry(1.0)}, self.now - 7200)
+        _n, _c, live = self._record({"m": self._entry(2.0)}, self.now - 3600)
+        removed = wb_pricing.prune_policies()
+        self.assertEqual(len(removed), 1)
+        self.assertIn(live["m"], wb_pricing.load_policies())
+
+    def test_prune_never_leaves_a_model_without_a_policy(self):
+        # "gone" is no longer in the live assignment and nothing references
+        # it, but it is that model's only row and has to survive.
+        _n, _c, dropped = self._record({"gone": self._entry(3.0)}, self.now - 7200)
+        self._record({"m": self._entry(1.0)}, self.now - 3600)
+        self.assertEqual(wb_pricing.prune_policies(), [])
+        self.assertIn(dropped["gone"], wb_pricing.load_policies())
+
+    def test_prune_keeps_a_referenced_policy(self):
+        _n, _c, first = self._record({"m": self._entry(1.0)}, self.now - 7200)
+        self._record({"m": self._entry(2.0)}, self.now - 3600)
+        with open(wb_pricing.usage_log_path(), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"model": "m", "cost_policy": first["m"]}) + "\n")
+        self.assertEqual(wb_pricing.prune_policies(), [])
+        self.assertIn(first["m"], wb_pricing.load_policies())
+
+    def test_prune_spares_the_batch_just_fetched(self):
+        # The newest batch is pinned explicitly, so a sweep that runs right
+        # after a fetch cannot delete what the fetch just produced.
+        _n, _c, older = self._record({"m": self._entry(1.0)}, self.now - 7200)
+        _n, _c, newer = self._record({"m": self._entry(2.0)}, self.now - 3600)
+        removed = wb_pricing.prune_policies(protect={older["m"]})
+        self.assertEqual(removed, [])
+        policies = wb_pricing.load_policies()
+        self.assertIn(older["m"], policies)
+        self.assertIn(newer["m"], policies)
 
 
 class PricingIntegrationTests(unittest.TestCase):
@@ -376,6 +503,11 @@ class PricingIntegrationTests(unittest.TestCase):
                                places=4)
         # One flat price means no band, and the key is still present.
         self.assertIsNone(by_model[self.MODEL]["cost_band"])
+        # This sandbox has no policies at all, so the row is priced from the
+        # factory snapshot and says so.
+        self.assertEqual(by_model[self.MODEL]["cost_source"], "builtin")
+        self.assertIsNone(by_model[self.MODEL]["cost_source_at"])
+        self.assertFalse(by_model[self.MODEL]["cost_backfilled"])
         # An unpriced model answer stays None instead of a fake zero.
         self.assertIsNone(by_model["no-such-model"]["cost_cny"])
 

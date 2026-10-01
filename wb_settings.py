@@ -20,6 +20,9 @@ import time
 DEFAULT_PANEL_PASSWORD = "admin"
 PBKDF2_ROUNDS = 120_000
 SESSION_TTL = 7 * 24 * 3600
+# How often the gateway pulls fresh prices, in hours; keep in step with
+# wb_pricing.DEFAULT_REFRESH_HOURS.
+DEFAULT_PRICING_REFRESH_HOURS = 6.0
 
 _lock = threading.RLock()
 
@@ -387,6 +390,39 @@ def set_daily_token_limit(accounts_dir, value):
     with _lock:
         data = load(accounts_dir)
         data["daily_token_limit"] = value
+        save(accounts_dir, data)
+    return value
+
+
+def pricing_refresh_hours(accounts_dir):
+    """How often the gateway refreshes the OpenRouter price history.
+
+    Zero disables the refresh, which keeps installs that predate the setting
+    on the bundled snapshot. Anything not a number falls back to the default,
+    so a hand-edited settings.json cannot wedge the refresh loop.
+    """
+    raw = load(accounts_dir).get("pricing_refresh_hours")
+    if raw is None:
+        return DEFAULT_PRICING_REFRESH_HOURS
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_PRICING_REFRESH_HOURS
+    return value if value > 0 else 0.0
+
+
+def set_pricing_refresh_hours(accounts_dir, value):
+    """Persist the refresh interval in hours. Returns the stored value."""
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return pricing_refresh_hours(accounts_dir)
+    # A month is well past "often enough"; the cap keeps a typo from parking
+    # the next refresh beyond any horizon the panel can show.
+    value = max(0.0, min(24 * 30, value))
+    with _lock:
+        data = load(accounts_dir)
+        data["pricing_refresh_hours"] = value
         save(accounts_dir, data)
     return value
 

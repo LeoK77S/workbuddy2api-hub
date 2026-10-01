@@ -417,6 +417,10 @@ def record_usage(model, usage, stream=None, elapsed_ms=None, ttft_ms=None, gen_m
         row["account"] = account
     acc = POOL.get(account) if (account and POOL) else None
     row["realm"] = acc.realm if acc else CURRENT_REALM
+    # The price policy this request is measured against, stored as a reference
+    # so the table can be de-duplicated and swept. A row written before the
+    # table existed has no reference and falls back to the timeline.
+    row["cost_policy"] = wb_pricing.current_policy_id(model)
     # Derived per-request rates (None-safe).
     if gen_ms and gen_ms > 0:
         row["tokens_per_sec"] = round(fields.get("completion_tokens", 0) / (gen_ms / 1000.0), 2)
@@ -909,7 +913,6 @@ def _usage_snapshot_uncached(realm=None, since=None, until=None):
     snap = _empty_stats()
     snap["started"] = _usage.get("started", time.time())
     try:
-        pricing = wb_pricing.load_pricing()
         with open(USAGE_LOG, encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
@@ -930,7 +933,10 @@ def _usage_snapshot_uncached(realm=None, since=None, until=None):
                 if until and at > until:
                     continue
                 outcome = row_outcome(row)
-                cost = wb_pricing.compute_row(row, pricing=pricing)
+                # Each row is priced against the version that was in force
+                # when it happened, so a later price change cannot rewrite
+                # yesterday's totals.
+                cost = wb_pricing.cost_for_row(row)
                 if outcome != "completed":
                     snap["errors"] += 1
                     # Credit is money already spent: a request that failed
@@ -1153,15 +1159,20 @@ def recent_usage(limit=100, realm=None, page=1):
     end_idx = start_idx + limit
     page_rows = matching[start_idx:end_idx]
     # Equivalent-token cost per row at OpenRouter list prices, computed here
-    # so every consumer of /usage/recent gets the same number. cost_cny stays
-    # None for models the snapshot cannot price; cost_band is the index of the
-    # time-of-day band the row landed in (None when the model has one flat
-    # price, or none of the bands matched).
-    pricing = wb_pricing.load_pricing()
+    # so every consumer of /usage/recent gets the same number. Each row is
+    # priced against the version that was in force when it happened, and says
+    # where that price came from. cost_cny stays None for models the version
+    # cannot price; cost_band is the index of the conditional band the row
+    # landed in (None when the model has one flat price, or none matched).
     for r in page_rows:
-        cost = wb_pricing.compute_row(r, pricing=pricing)
+        cost = wb_pricing.cost_for_row(r)
         r["cost_cny"] = round(cost["cny"], 6) if cost["known"] else None
         r["cost_band"] = cost["band"] if cost["known"] else None
+        # cost_policy stays as the row recorded it; cost_source is what the
+        # lookup actually resolved to (the same id, or "builtin").
+        r["cost_source"] = cost["source"] if cost["known"] else None
+        r["cost_source_at"] = cost["source_at"] if cost["known"] else None
+        r["cost_backfilled"] = bool(cost["backfilled"]) if cost["known"] else False
     return {
         "total": total,
         "page": page,
@@ -1172,6 +1183,7 @@ def recent_usage(limit=100, realm=None, page=1):
     }
 POOL = None
 SCHEDULER = None
+PRICING = None
 ACCOUNTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'accounts')
 def realm_state_file():
     """Path of the persisted realm switch.
@@ -1405,7 +1417,6 @@ def _scan_usage_log(all_summary, window_summary, acct_map, model_map, since=None
     """
     if os.path.exists(USAGE_LOG):
         try:
-            pricing = wb_pricing.load_pricing()
             with open(USAGE_LOG, encoding="utf-8") as fh:
                 for line in fh:
                     line = line.strip()
@@ -1426,7 +1437,7 @@ def _scan_usage_log(all_summary, window_summary, acct_map, model_map, since=None
                     if outcome == "client_aborted":
                         continue
                     is_err = outcome != "completed"
-                    cost = wb_pricing.compute_row(r, pricing=pricing)
+                    cost = wb_pricing.cost_for_row(r)
                     at = r.get("at", 0)
                     # Same bounds as /usage and /usage/perf, so the three
                     # readers agree on what the selected range contains.
@@ -1596,6 +1607,7 @@ def runtime_settings_view():
         "api_keys": keys,
         "reserve_credits": wb_settings.reserve_credits(ACCOUNTS_DIR),
         "daily_token_limit": wb_settings.daily_token_limit(ACCOUNTS_DIR),
+        "pricing_refresh_hours": wb_settings.pricing_refresh_hours(ACCOUNTS_DIR),
         "auto_switch_product": wb_settings.auto_switch_product(ACCOUNTS_DIR),
         "daily_chat_web": wb_settings.daily_chat_web(ACCOUNTS_DIR),
         "local_web_tools": wb_settings.local_web_tools(ACCOUNTS_DIR),
@@ -5486,6 +5498,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._get_tasks(query)
         if path == "/scheduler":
             return self._get_scheduler()
+        if path == "/pricing":
+            return self._get_pricing()
         if path == "/settings":
             return self._get_settings()
         if path == "/proxy/slots":
@@ -5696,6 +5710,18 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized():
             return
         return self._json(200, SCHEDULER.status() if SCHEDULER else {"enabled": False, "msg": "未运行"})
+
+    def _get_pricing(self):
+        if not self._authorized():
+            return
+        if PRICING:
+            return self._json(200, PRICING.status())
+        return self._json(200, {
+            "interval_hours": 0.0, "enabled": False, "running": False,
+            "policies": 0, "models": 0, "current": {}, "logs": [],
+            "policies_file": wb_pricing.policies_path(),
+            "timeline": wb_pricing.timeline_path(), "msg": "未运行",
+        })
 
     def _get_settings(self):
         if not self._authorized():
@@ -5937,6 +5963,24 @@ class Handler(BaseHTTPRequestHandler):
             wb_settings.set_daily_token_limit(ACCOUNTS_DIR, limit)
             apply_daily_token_limit(refresh=True)
             reply["daily_token_limit"] = limit
+        if "pricing_refresh_hours" in payload:
+            raw = payload.get("pricing_refresh_hours")
+            if isinstance(raw, bool) or raw is None:
+                return self._error(400, "pricing_refresh_hours must be a number",
+                                   "invalid_request_error")
+            try:
+                hours = float(raw)
+            except (TypeError, ValueError):
+                return self._error(400, "pricing_refresh_hours must be a number",
+                                   "invalid_request_error")
+            if hours < 0:
+                return self._error(400, "pricing_refresh_hours cannot be negative",
+                                   "invalid_request_error")
+            stored = wb_settings.set_pricing_refresh_hours(ACCOUNTS_DIR, hours)
+            if PRICING:
+                # A running wait picks the new interval up on the spot.
+                PRICING.set_interval(stored)
+            reply["pricing_refresh_hours"] = stored
         if "auto_switch_product" in payload:
             # Strictly a JSON boolean: a string like "false" would be truthy and
             # silently switch the feature on, which is the one thing an operator
@@ -6105,6 +6149,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._route_scheduler_trigger(payload)
         if path == "/scheduler/toggle":
             return self._route_scheduler_toggle(payload)
+        if path == "/pricing/refresh":
+            return self._route_pricing_refresh(payload)
         if path == "/logs/clear":
             return self._route_logs_clear(payload)
         if path == "/realm":
@@ -6287,6 +6333,18 @@ class Handler(BaseHTTPRequestHandler):
             SCHEDULER.log(f"用户切换调度器状态为: {'启用' if SCHEDULER.enabled else '暂停'}")
             return self._json(200, SCHEDULER.status())
         return self._json(200, {"ok": False, "msg": "调度器未初始化"})
+
+    def _route_pricing_refresh(self, payload):
+        # Fetching takes tens of seconds, so it runs on its own thread and the
+        # panel polls /pricing for the outcome.
+        if not PRICING:
+            return self._json(200, {"ok": False, "msg": "价格刷新未运行"})
+        threading.Thread(target=PRICING.run_once, daemon=True,
+                         name="price-refresh-manual").start()
+        out = PRICING.status()
+        out["ok"] = True
+        out["msg"] = "已开始抓取，稍候刷新查看结果"
+        return self._json(200, out)
 
     def _route_logs_clear(self, payload):
         clear_logs()
@@ -7137,6 +7195,13 @@ def _bootstrap_runtime(args):
     from wb_scheduler import Scheduler
     SCHEDULER = Scheduler(POOL)
     SCHEDULER.start()
+    global PRICING
+    # The policy table and its timeline live beside the usage log, so one
+    # volume carries both and the request references resolve locally.
+    wb_pricing.set_data_dir(USAGE_DIR)
+    PRICING = wb_pricing.PriceRefresher(
+        wb_settings.pricing_refresh_hours(ACCOUNTS_DIR))
+    PRICING.start()
     return api_key_generated
 
 def _report_first_run(args):

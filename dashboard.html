@@ -802,6 +802,27 @@ a:hover{text-decoration:underline}
       <section>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
           <div>
+            <h2 style="margin:0">定价刷新 <em id="setPricingState"></em></h2>
+            <div style="font-size:12px;color:var(--dim);margin-top:4px">
+              网关每隔这段时间去 OpenRouter 取一次价：每个模型每份不同的价格存成一条<b>定价策略</b>（内容相同就复用同一条，不重复写），并声明「现在生效的是哪一条」。每条请求按它发生时生效的那一条计价，所以之后调价不会改写之前的数字；请求只记它引用的是哪条策略，不内嵌整份价格。取价时还没有价的模型，用之后第一次取到的价补算并标 <code>*</code>。没人引用、又已经不作数的策略会被清掉（每个模型至少留一条，刚取到的那批不动）。填 0 表示不自动刷新（仍可用「立即取价」手动取一次）。<span id="setPricingMeta"></span>
+            </div>
+            <div id="setPricingCurrent"></div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <div>
+              <div style="font-size:12px;color:var(--dim);margin-bottom:4px">刷新间隔（小时）</div>
+              <input id="setPricingHours" type="number" min="0" step="1" value="6"
+                     style="width:150px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--fg);font:inherit">
+            </div>
+            <button onclick="savePricingHours(this)">保存</button>
+            <button onclick="refreshPricingNow(this)">立即取价</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div>
             <h2 style="margin:0">429 自动切换出站身分 <em id="setAutoSwitchState"></em></h2>
             <div style="font-size:12px;color:var(--dim);margin-top:4px">
               某账号在某模型上被上游限流（429）时，自动在 WB / VSC / CLI 之间换身分重试，每轮最多 4 次。三条身分走不同的配额通道，开启后 429 会少一些。默认关闭。
@@ -1620,6 +1641,17 @@ function setCostCurrency(cur){
   renderCostToggle();
   // 已经渲染出来的表格/卡片就地换算重画，不必等下一轮轮询。
   if(typeof refreshAllCostViews === 'function') refreshAllCostViews();
+}
+// 悬停里说清这个数是怎么来的：哪条定价策略算的、落在哪个条件档、是不是补算。
+function costTitle(r){
+  if(r.cost_cny == null) return '该模型暂无定价数据';
+  let out = '按 OpenRouter 公布的模型价折算的等价 token 花费';
+  if(r.cost_band != null) out += '；该模型按条件定价（输入长度阈值或时段），这条落在第 ' + (r.cost_band + 1) + ' 档';
+  if(r.cost_source === 'builtin') out += '；定价依据：出厂快照（还没有取到策略）';
+  else if(r.cost_source) out += '；定价依据：策略 ' + r.cost_source
+      + (r.cost_source_at ? '（' + new Date(r.cost_source_at * 1000).toLocaleString() + ' 首次取到）' : '');
+  if(r.cost_backfilled) out += '。这条请求发生在该策略取到之前，用之后第一次取到的价补算';
+  return out;
 }
 function renderCostToggle(){
   document.querySelectorAll('.cost-toggle').forEach(el => {
@@ -2456,7 +2488,10 @@ async function refreshInner(){
         + '<td data-label="缓存">' + (r.cache_hit_pct!=null ? r.cache_hit_pct+'%' : '—') + '</td>'
         + '<td data-label="总 token"><b>' + fmt(r.total_tokens) + '</b></td>'
         + '<td data-label="积分" style="color:var(--accent2)">' + (r.credit != null ? Number(r.credit).toFixed(2) : '—') + '</td>'
-        + '<td data-label="OpenRouter 价估算" style="color:var(--warn)" title="' + (r.cost_cny == null ? '该模型暂无定价数据' : (r.cost_band == null ? '按 OpenRouter 公布的模型价折算的等价 token 花费' : '该模型按条件定价（输入长度阈值或时段），这条落在第 ' + (r.cost_band + 1) + ' 档单价')) + '">' + fmtCost(r.cost_cny) + '</td>'
+        + '<td data-label="OpenRouter 价估算" style="color:var(--warn)" title="' + costTitle(r) + '">'
+        +   fmtCost(r.cost_cny)
+        +   (r.cost_backfilled ? '<span style="color:var(--dim)">*</span>' : '')
+        + '</td>'
       + '</tr>').join('') + '</tbody></table>'
     : '<div class="empty">还没有请求记录</div>';
 }
@@ -2693,6 +2728,15 @@ async function loadSettings(showToast){
         dailyTokState.textContent = dailyTokValue > 0 ? ('(每账号每天 ' + fmt(dailyTokValue) + ' token)') : '(不限)';
         dailyTokState.style.color = dailyTokValue > 0 ? 'var(--accent2)' : 'var(--dim)';
       }
+      const pricingHours = Number(data.pricing_refresh_hours || 0);
+      const pricingInput = document.getElementById('setPricingHours');
+      if(pricingInput) pricingInput.value = String(pricingHours);
+      const pricingState = document.getElementById('setPricingState');
+      if(pricingState){
+        pricingState.textContent = pricingHours > 0 ? ('(每 ' + pricingHours + ' 小时)') : '(未启用)';
+        pricingState.style.color = pricingHours > 0 ? 'var(--accent2)' : 'var(--dim)';
+      }
+      loadPricingStatus();
       const autoSwitch = data.auto_switch_product === true;
       const autoSwitchInput = document.getElementById('setAutoSwitch');
       if(autoSwitchInput) autoSwitchInput.checked = autoSwitch;
@@ -2797,6 +2841,69 @@ async function saveDailyTokenLimit(btn){
     loadSettings();
   } catch(e) {
     toast('保存失败: ' + e.message, 'bad');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+async function savePricingHours(btn){
+  const el = document.getElementById('setPricingHours');
+  const value = Number((el || {}).value || 0);
+  if(!Number.isFinite(value) || value < 0){ toast('请填写 0 或正数（小时）', 'warn'); return; }
+  if(btn) btn.disabled = true;
+  try {
+    await postJSON('/settings/save', {pricing_refresh_hours: value});
+    toast(value > 0 ? ('已启用：每 ' + value + ' 小时取一次价') : '已关闭自动取价（仍可手动取一次）', 'ok');
+    loadSettings();
+  } catch(e) {
+    toast('保存失败: ' + e.message, 'bad');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+async function loadPricingStatus(){
+  const meta = document.getElementById('setPricingMeta');
+  const box = document.getElementById('setPricingCurrent');
+  if(!meta) return;
+  try {
+    const st = await getJSON('/pricing');
+    const bits = [];
+    if(st.current_at_label) bits.push('当前生效 ' + st.current_at_label + ' 那一份（' + (st.models || 0) + ' 个模型）');
+    else bits.push('还没取过价，暂用出厂快照');
+    if(st.last_run_label) bits.push('上次取价 ' + st.last_run_label);
+    if(st.enabled && st.next_run_label) bits.push('下次 ' + st.next_run_label);
+    bits.push('策略表 ' + (st.policies || 0) + ' 条');
+    if(st.last_error) bits.push('上次失败：' + st.last_error);
+    meta.textContent = '　' + bits.join('；');
+    meta.style.color = st.last_error ? 'var(--warn)' : 'var(--dim)';
+    if(box){
+      const cur = st.current || {};
+      const models = Object.keys(cur);
+      box.innerHTML = models.length
+        ? '<details><summary style="cursor:pointer">展开查看每个模型当前生效的策略</summary>'
+          + '<div style="margin-top:6px;max-height:260px;overflow:auto;font-family:monospace;line-height:1.7">'
+          + models.map(m => esc(m) + ' → ' + esc(cur[m].id || '') + (cur[m].label ? '（' + esc(cur[m].label) + ' 首次取到）' : '')).join('<br>')
+          + '</div></details>'
+        : '';
+    }
+  } catch(e) {
+    meta.textContent = '';
+    if(box) box.innerHTML = '';
+  }
+}
+
+async function refreshPricingNow(btn){
+  if(btn) btn.disabled = true;
+  try {
+    const st = await postJSON('/pricing/refresh', {});
+    toast(st.msg || '已开始抓取', 'ok');
+    // The fetch runs on the server's own thread, so come back for the result
+    // instead of holding the button.
+    setTimeout(loadPricingStatus, 4000);
+    setTimeout(loadPricingStatus, 15000);
+  } catch(e) {
+    toast('触发失败: ' + e.message, 'bad');
   } finally {
     if(btn) btn.disabled = false;
   }
