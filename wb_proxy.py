@@ -37,6 +37,7 @@ import urllib.request
 import uuid
 import wb_accounts
 import wb_catalog
+import wb_pricing
 import wb_settings
 import wb_webtools
 import wb_identity
@@ -225,7 +226,8 @@ def identify_key(supplied):
 def _empty_stats():
     return {"requests": 0, "errors": 0, "prompt_tokens": 0, "completion_tokens": 0,
             "reasoning_tokens": 0, "cached_tokens": 0, "total_tokens": 0,
-            "credit": 0.0, "started": time.time(), "by_model": {},
+            "credit": 0.0, "cost_cny": 0.0, "cost_missing": {},
+            "started": time.time(), "by_model": {},
             # Same aggregation keyed by (model, realm), so the metrics table
             # can show one row per exit for a model that ran through both.
             "by_model_realm": {},
@@ -884,6 +886,21 @@ def usage_snapshot(realm=None, ttl=None, range=None, since=None, until=None):
     return data
 
 
+def _fold_cost(bucket, cost, model):
+    """Fold one row's estimated cost into a stats bucket.
+
+    Unpriced models land in cost_missing (id -> count) instead of quietly
+    vanishing from the totals, so the panel can name what the price
+    snapshot does not cover yet.
+    """
+    if cost["known"]:
+        bucket["cost_cny"] = (bucket.get("cost_cny") or 0.0) + cost["cny"]
+    else:
+        missing = bucket.setdefault("cost_missing", {})
+        mid = model or "unknown"
+        missing[mid] = missing.get(mid, 0) + 1
+
+
 def _usage_snapshot_uncached(realm=None, since=None, until=None):
     # None means every realm; usage_snapshot() has already mapped "all"
     # onto it, so the filter below is simply skipped.
@@ -892,6 +909,7 @@ def _usage_snapshot_uncached(realm=None, since=None, until=None):
     snap = _empty_stats()
     snap["started"] = _usage.get("started", time.time())
     try:
+        pricing = wb_pricing.load_pricing()
         with open(USAGE_LOG, encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
@@ -912,6 +930,7 @@ def _usage_snapshot_uncached(realm=None, since=None, until=None):
                 if until and at > until:
                     continue
                 outcome = row_outcome(row)
+                cost = wb_pricing.compute_row(row, pricing=pricing)
                 if outcome != "completed":
                     snap["errors"] += 1
                     # Credit is money already spent: a request that failed
@@ -922,27 +941,32 @@ def _usage_snapshot_uncached(realm=None, since=None, until=None):
                     # because its usage block is incomplete.
                     if outcome != "client_aborted":
                         snap["credit"] += (row.get("credit") or 0)
+                        _fold_cost(snap, cost, row.get("model"))
                 else:
                     snap["requests"] += 1
                     for k in USAGE_FIELDS:
                         if k in row:
                             snap[k] += (row[k] or 0)
+                    _fold_cost(snap, cost, row.get("model"))
                     m = row.get("model") or "unknown"
                     rr = row_realm(row)
-                    per = snap["by_model"].setdefault(m, {"requests": 0, "accounts": {}, **{k: 0 for k in USAGE_FIELDS}})
+                    per = snap["by_model"].setdefault(m, {"requests": 0, "accounts": {}, "cost_cny": 0.0, **{k: 0 for k in USAGE_FIELDS}})
                     per_realm = snap["by_model_realm"].setdefault(m, {}).setdefault(
-                        rr, {"requests": 0, "accounts": {}, **{k: 0 for k in USAGE_FIELDS}})
+                        rr, {"requests": 0, "accounts": {}, "cost_cny": 0.0, **{k: 0 for k in USAGE_FIELDS}})
                     acct_id = row.get("account")
                     acct_key = acct_id or "(unattributed)"
                     per_acct = (snap["by_model_acct"].setdefault(m, {})
                                 .setdefault(rr, {})
                                 .setdefault(acct_key, {"requests": 0, "accounts": {},
+                                                       "cost_cny": 0.0,
                                                        **{k: 0 for k in USAGE_FIELDS}}))
                     for bucket in (per, per_realm, per_acct):
                         bucket["requests"] += 1
                         for k in USAGE_FIELDS:
                             if k in row:
                                 bucket[k] += (row[k] or 0)
+                        if cost["known"]:
+                            bucket["cost_cny"] += cost["cny"]
                         if acct_id:
                             bucket["accounts"][acct_id] = bucket["accounts"].get(acct_id, 0) + 1
     except FileNotFoundError:
@@ -952,6 +976,9 @@ def _usage_snapshot_uncached(realm=None, since=None, until=None):
     snap["since"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(snap.get("started", time.time())))
     snap["log_file"] = USAGE_LOG
     snap["realm"] = r or "all"
+    # Cost figures are CNY; the panel divides by this rate to show USD
+    # without a round trip.
+    snap["usd_cny"] = wb_pricing.usd_cny()
     snap["accounts_map"] = {a.uid: {"nickname": a.nickname, "realm": a.realm} for a in POOL.accounts} if POOL else {}
     snap["account"] = {
         "uid": (rep.uid if rep else ""),
@@ -1125,11 +1152,22 @@ def recent_usage(limit=100, realm=None, page=1):
     start_idx = (page - 1) * limit
     end_idx = start_idx + limit
     page_rows = matching[start_idx:end_idx]
+    # Equivalent-token cost per row at OpenRouter list prices, computed here
+    # so every consumer of /usage/recent gets the same number. cost_cny stays
+    # None for models the snapshot cannot price; cost_band is the index of the
+    # time-of-day band the row landed in (None when the model has one flat
+    # price, or none of the bands matched).
+    pricing = wb_pricing.load_pricing()
+    for r in page_rows:
+        cost = wb_pricing.compute_row(r, pricing=pricing)
+        r["cost_cny"] = round(cost["cny"], 6) if cost["known"] else None
+        r["cost_band"] = cost["band"] if cost["known"] else None
     return {
         "total": total,
         "page": page,
         "limit": limit,
         "total_pages": total_pages,
+        "usd_cny": wb_pricing.usd_cny(),
         "rows": page_rows
     }
 POOL = None
@@ -1349,6 +1387,7 @@ def _new_analytics_stat():
             "prompt_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0,
             "cached_tokens": 0, "total_tokens": 0,
             "credit": 0.0,
+            "cost_cny": 0.0,
             "ttft_sum": 0.0, "ttft_n": 0,
             "speed_sum": 0.0, "speed_n": 0,
             "elapsed_sum": 0.0, "elapsed_n": 0,
@@ -1366,6 +1405,7 @@ def _scan_usage_log(all_summary, window_summary, acct_map, model_map, since=None
     """
     if os.path.exists(USAGE_LOG):
         try:
+            pricing = wb_pricing.load_pricing()
             with open(USAGE_LOG, encoding="utf-8") as fh:
                 for line in fh:
                     line = line.strip()
@@ -1386,6 +1426,7 @@ def _scan_usage_log(all_summary, window_summary, acct_map, model_map, since=None
                     if outcome == "client_aborted":
                         continue
                     is_err = outcome != "completed"
+                    cost = wb_pricing.compute_row(r, pricing=pricing)
                     at = r.get("at", 0)
                     # Same bounds as /usage and /usage/perf, so the three
                     # readers agree on what the selected range contains.
@@ -1408,6 +1449,8 @@ def _scan_usage_log(all_summary, window_summary, acct_map, model_map, since=None
                         stat_obj["cached_tokens"] += (r.get("cached_tokens") or 0)
                         stat_obj["total_tokens"] += (r.get("total_tokens") or 0)
                         stat_obj["credit"] += (r.get("credit") or 0)
+                        if cost["known"]:
+                            stat_obj["cost_cny"] += cost["cny"]
                         if r.get("ttft_ms"):
                             stat_obj["ttft_sum"] += r["ttft_ms"]
                             stat_obj["ttft_n"] += 1
@@ -1435,15 +1478,19 @@ def _scan_usage_log(all_summary, window_summary, acct_map, model_map, since=None
                     if in_window:
                         feed(acct_map[acct_uid]["window"], is_err)
                     if not is_err:
-                        tm = acct_map[acct_uid]["all_models"].setdefault(m_id, {"requests": 0, "tokens": 0, "reasoning": 0})
+                        tm = acct_map[acct_uid]["all_models"].setdefault(m_id, {"requests": 0, "tokens": 0, "reasoning": 0, "cost_cny": 0.0})
                         tm["requests"] += 1
                         tm["tokens"] += (r.get("total_tokens") or 0)
                         tm["reasoning"] += (r.get("reasoning_tokens") or 0)
+                        if cost["known"]:
+                            tm["cost_cny"] += cost["cny"]
                         if in_window:
-                            tdm = acct_map[acct_uid]["window_models"].setdefault(m_id, {"requests": 0, "tokens": 0, "reasoning": 0})
+                            tdm = acct_map[acct_uid]["window_models"].setdefault(m_id, {"requests": 0, "tokens": 0, "reasoning": 0, "cost_cny": 0.0})
                             tdm["requests"] += 1
                             tdm["tokens"] += (r.get("total_tokens") or 0)
                             tdm["reasoning"] += (r.get("reasoning_tokens") or 0)
+                            if cost["known"]:
+                                tdm["cost_cny"] += cost["cny"]
                     if m_id not in model_map:
                         model_map[m_id] = {"model": m_id, "window": _new_analytics_stat(), "all_time": _new_analytics_stat()}
                     feed(model_map[m_id]["all_time"], is_err)
@@ -1515,6 +1562,8 @@ def _compute_usage_analytics_uncached(realm=None, since=None, until=None):
         # what the panel hoped it sent.
         "window": {"since": since, "until": until},
         "realm": realm or "all",
+        # Cost figures are CNY; the panel divides by this rate to show USD.
+        "usd_cny": wb_pricing.usd_cny(),
         "summary": {"window": window_summary, "all_time": all_summary},
         "accounts": accts_list,
         "models": models_list,
