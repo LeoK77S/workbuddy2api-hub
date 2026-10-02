@@ -1514,18 +1514,20 @@ def policy_label(policy):
 
 # ---- background refresh ------------------------------------------------------
 # The gateway refreshes the price history on its own schedule; the interval is
-# a panel setting (0 turns it off). A failed fetch changes nothing, so the
-# last good version keeps pricing requests.
+# a panel setting in minutes (0 turns it off). A failed fetch changes nothing,
+# so the last good version keeps pricing requests. Prices only move a policy
+# when they actually change, so a short interval costs one HTTP GET per cycle
+# and nothing else.
 
-DEFAULT_REFRESH_HOURS = 6
+DEFAULT_REFRESH_MINUTES = 5
 
 
 class PriceRefresher(threading.Thread):
     """Periodically append a fresh OpenRouter version to the history."""
 
-    def __init__(self, interval_hours=DEFAULT_REFRESH_HOURS):
+    def __init__(self, interval_minutes=DEFAULT_REFRESH_MINUTES):
         super().__init__(daemon=True, name="price-refresher")
-        self.interval_hours = max(0.0, _as_float(interval_hours))
+        self.interval_minutes = max(0.0, _as_float(interval_minutes))
         self.last_run = None
         self.last_error = None
         self.last_models = 0
@@ -1546,9 +1548,13 @@ class PriceRefresher(threading.Thread):
         except Exception:
             pass
 
-    def set_interval(self, hours):
+    def interval_seconds(self):
+        """The current interval in seconds - the one place the unit is applied."""
+        return max(0.0, _as_float(self.interval_minutes)) * 60.0
+
+    def set_interval(self, minutes):
         """Apply a new interval; a running wait picks it up immediately."""
-        self.interval_hours = max(0.0, _as_float(hours))
+        self.interval_minutes = max(0.0, _as_float(minutes))
         self._wake.set()
 
     def stop(self):
@@ -1588,20 +1594,20 @@ class PriceRefresher(threading.Thread):
     def run(self):
         # First boot: with nothing fetched yet, take one reading right away so
         # the panel has something concrete to point at.
-        if self.interval_hours > 0 and not load_timeline():
+        if self.interval_minutes > 0 and not load_timeline():
             try:
                 self.run_once()
             except Exception as exc:
                 self.log("首次抓取异常：%s" % exc)
         while not self._stop_event.is_set():
-            hours = self.interval_hours
-            if hours <= 0:
+            seconds = self.interval_seconds()
+            if seconds <= 0:
                 self.next_run = None
                 self._wake.wait()
                 self._wake.clear()
                 continue
-            self.next_run = time.time() + hours * 3600.0
-            if self._wake.wait(hours * 3600.0):
+            self.next_run = time.time() + seconds
+            if self._wake.wait(seconds):
                 self._wake.clear()
                 continue
             if self._stop_event.is_set():
@@ -1616,8 +1622,8 @@ class PriceRefresher(threading.Thread):
         policies = load_policies()
         at, assignment = current_assignment()
         return {
-            "interval_hours": self.interval_hours,
-            "enabled": self.interval_hours > 0,
+            "interval_minutes": self.interval_minutes,
+            "enabled": self.interval_minutes > 0,
             "running": self.is_alive(),
             "last_run": self.last_run,
             "last_run_label": (time.strftime("%Y-%m-%d %H:%M",

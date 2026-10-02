@@ -1607,7 +1607,7 @@ def runtime_settings_view():
         "api_keys": keys,
         "reserve_credits": wb_settings.reserve_credits(ACCOUNTS_DIR),
         "daily_token_limit": wb_settings.daily_token_limit(ACCOUNTS_DIR),
-        "pricing_refresh_hours": wb_settings.pricing_refresh_hours(ACCOUNTS_DIR),
+        "pricing_refresh_minutes": wb_settings.pricing_refresh_minutes(ACCOUNTS_DIR),
         "auto_switch_product": wb_settings.auto_switch_product(ACCOUNTS_DIR),
         "daily_chat_web": wb_settings.daily_chat_web(ACCOUNTS_DIR),
         "local_web_tools": wb_settings.local_web_tools(ACCOUNTS_DIR),
@@ -5717,7 +5717,7 @@ class Handler(BaseHTTPRequestHandler):
         if PRICING:
             return self._json(200, PRICING.status())
         return self._json(200, {
-            "interval_hours": 0.0, "enabled": False, "running": False,
+            "interval_minutes": 0.0, "enabled": False, "running": False,
             "policies": 0, "models": 0, "current": {}, "logs": [],
             "policies_file": wb_pricing.policies_path(),
             "timeline": wb_pricing.timeline_path(), "msg": "未运行",
@@ -5963,24 +5963,31 @@ class Handler(BaseHTTPRequestHandler):
             wb_settings.set_daily_token_limit(ACCOUNTS_DIR, limit)
             apply_daily_token_limit(refresh=True)
             reply["daily_token_limit"] = limit
-        if "pricing_refresh_hours" in payload:
-            raw = payload.get("pricing_refresh_hours")
+        if "pricing_refresh_minutes" in payload or "pricing_refresh_hours" in payload:
+            # The interval is in minutes. The old field name is still accepted
+            # (x60) so a panel page cached from the previous build cannot set
+            # the wrong unit; it is answered under the new name.
+            field = "pricing_refresh_minutes" \
+                if "pricing_refresh_minutes" in payload else "pricing_refresh_hours"
+            raw = payload.get(field)
             if isinstance(raw, bool) or raw is None:
-                return self._error(400, "pricing_refresh_hours must be a number",
+                return self._error(400, "%s must be a number" % field,
                                    "invalid_request_error")
             try:
-                hours = float(raw)
+                minutes = float(raw)
             except (TypeError, ValueError):
-                return self._error(400, "pricing_refresh_hours must be a number",
+                return self._error(400, "%s must be a number" % field,
                                    "invalid_request_error")
-            if hours < 0:
-                return self._error(400, "pricing_refresh_hours cannot be negative",
+            if field == "pricing_refresh_hours":
+                minutes *= 60.0
+            if minutes < 0:
+                return self._error(400, "pricing_refresh_minutes cannot be negative",
                                    "invalid_request_error")
-            stored = wb_settings.set_pricing_refresh_hours(ACCOUNTS_DIR, hours)
+            stored = wb_settings.set_pricing_refresh_minutes(ACCOUNTS_DIR, minutes)
             if PRICING:
                 # A running wait picks the new interval up on the spot.
                 PRICING.set_interval(stored)
-            reply["pricing_refresh_hours"] = stored
+            reply["pricing_refresh_minutes"] = stored
         if "auto_switch_product" in payload:
             # Strictly a JSON boolean: a string like "false" would be truthy and
             # silently switch the feature on, which is the one thing an operator
@@ -7200,7 +7207,7 @@ def _bootstrap_runtime(args):
     # volume carries both and the request references resolve locally.
     wb_pricing.set_data_dir(USAGE_DIR)
     PRICING = wb_pricing.PriceRefresher(
-        wb_settings.pricing_refresh_hours(ACCOUNTS_DIR))
+        wb_settings.pricing_refresh_minutes(ACCOUNTS_DIR))
     PRICING.start()
     return api_key_generated
 

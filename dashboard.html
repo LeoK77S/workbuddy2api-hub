@@ -804,17 +804,17 @@ a:hover{text-decoration:underline}
           <div>
             <h2 style="margin:0">定价刷新 <em id="setPricingState"></em></h2>
             <div style="font-size:12px;color:var(--dim);margin-top:4px">
-              网关每隔这段时间去 OpenRouter 取一次价：每个模型每份不同的价格存成一条<b>定价策略</b>（内容相同就复用同一条，不重复写），并声明「现在生效的是哪一条」。每条请求按它发生时生效的那一条计价，所以之后调价不会改写之前的数字；请求只记它引用的是哪条策略，不内嵌整份价格。取价时还没有价的模型，用之后第一次取到的价补算并标 <code>*</code>。没人引用、又已经不作数的策略会被清掉（每个模型至少留一条，刚取到的那批不动）。填 0 表示不自动刷新（仍可用「立即取价」手动取一次）。<span id="setPricingMeta"></span>
+              网关每隔这段时间去 OpenRouter 取一次价：每个模型每份不同的价格存成一条<b>定价策略</b>（内容相同就复用同一条，不重复写），并声明「现在生效的是哪一条」。每条请求按它发生时生效的那一条计价，所以之后调价不会改写之前的数字；请求只记它引用的是哪条策略，不内嵌整份价格。取价时还没有价的模型，用之后第一次取到的价补算并标 <code>*</code>。没人引用、又已经不作数的策略会被清掉（每个模型至少留一条，刚取到的那批不动）。取价间隔以<b>分钟</b>计，默认 5 分钟；填 0 表示不自动刷新（仍可用「立即取价」手动取一次）。<span id="setPricingMeta"></span>
             </div>
             <div id="setPricingCurrent"></div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
             <div>
-              <div style="font-size:12px;color:var(--dim);margin-bottom:4px">刷新间隔（小时）</div>
-              <input id="setPricingHours" type="number" min="0" step="1" value="6"
+              <div style="font-size:12px;color:var(--dim);margin-bottom:4px">刷新间隔（分钟）</div>
+              <input id="setPricingMinutes" type="number" min="0" step="1" value="5"
                      style="width:150px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--fg);font:inherit">
             </div>
-            <button onclick="savePricingHours(this)">保存</button>
+            <button onclick="savePricingMinutes(this)">保存</button>
             <button onclick="refreshPricingNow(this)">立即取价</button>
           </div>
         </div>
@@ -2728,13 +2728,13 @@ async function loadSettings(showToast){
         dailyTokState.textContent = dailyTokValue > 0 ? ('(每账号每天 ' + fmt(dailyTokValue) + ' token)') : '(不限)';
         dailyTokState.style.color = dailyTokValue > 0 ? 'var(--accent2)' : 'var(--dim)';
       }
-      const pricingHours = Number(data.pricing_refresh_hours || 0);
-      const pricingInput = document.getElementById('setPricingHours');
-      if(pricingInput) pricingInput.value = String(pricingHours);
+      const pricingMinutes = Number(data.pricing_refresh_minutes || 0);
+      const pricingInput = document.getElementById('setPricingMinutes');
+      if(pricingInput) pricingInput.value = String(pricingMinutes);
       const pricingState = document.getElementById('setPricingState');
       if(pricingState){
-        pricingState.textContent = pricingHours > 0 ? ('(每 ' + pricingHours + ' 小时)') : '(未启用)';
-        pricingState.style.color = pricingHours > 0 ? 'var(--accent2)' : 'var(--dim)';
+        pricingState.textContent = pricingMinutes > 0 ? ('(每 ' + pricingMinutes + ' 分钟)') : '(未启用)';
+        pricingState.style.color = pricingMinutes > 0 ? 'var(--accent2)' : 'var(--dim)';
       }
       loadPricingStatus();
       const autoSwitch = data.auto_switch_product === true;
@@ -2846,14 +2846,14 @@ async function saveDailyTokenLimit(btn){
   }
 }
 
-async function savePricingHours(btn){
-  const el = document.getElementById('setPricingHours');
+async function savePricingMinutes(btn){
+  const el = document.getElementById('setPricingMinutes');
   const value = Number((el || {}).value || 0);
-  if(!Number.isFinite(value) || value < 0){ toast('请填写 0 或正数（小时）', 'warn'); return; }
+  if(!Number.isFinite(value) || value < 0){ toast('请填写 0 或正数（分钟）', 'warn'); return; }
   if(btn) btn.disabled = true;
   try {
-    await postJSON('/settings/save', {pricing_refresh_hours: value});
-    toast(value > 0 ? ('已启用：每 ' + value + ' 小时取一次价') : '已关闭自动取价（仍可手动取一次）', 'ok');
+    await postJSON('/settings/save', {pricing_refresh_minutes: value});
+    toast(value > 0 ? ('已启用：每 ' + value + ' 分钟取一次价') : '已关闭自动取价（仍可手动取一次）', 'ok');
     loadSettings();
   } catch(e) {
     toast('保存失败: ' + e.message, 'bad');
