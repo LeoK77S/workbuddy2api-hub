@@ -24,6 +24,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
 import unittest.mock
 
@@ -236,6 +237,83 @@ class UnionInputTests(PricingTestCase):
             self.assertIn(alias, unpriced)  # unchanged from before the change
         for alias in ALIASES:
             self.assertNotIn(alias, overridden)
+
+
+class SingleGatewayInstanceTests(PricingTestCase):
+    """Pricing must talk to the gateway module the server actually runs.
+
+    The container starts `python wb_proxy.py`, which makes the live instance
+    __main__; a second `import wb_proxy` inside that process has no account
+    pool - the live catalogue reads empty, silently - and its own log buffer,
+    so pricing lines never reach the panel. Production showed exactly both: a
+    refresh reporting no live additions while /v1/models still listed them,
+    and an empty log page for the pricing tag. `__main__` stands in for the
+    server here, with wb_proxy imported the ordinary way right beside it.
+    """
+
+    @staticmethod
+    def _fake_gateway():
+        class FakeGateway(object):
+            VIRTUAL_ALIAS_MODELS = ("default-model", "auto")
+
+            def __init__(self):
+                self.realms = []
+                self.lines = []
+
+            def curated_live_sources(self, realm):
+                self.realms.append(realm)
+                return ([("gpt-6-sol", {})], True)
+
+            def add_log_entry(self, message, tag=None):
+                self.lines.append((message, tag))
+
+        return FakeGateway()
+
+    def test_the_live_catalogue_is_read_from_the_running_gateway(self):
+        fake = self._fake_gateway()
+        with unittest.mock.patch.dict(sys.modules, {"__main__": fake}):
+            ids = self._refresher().live_ids()
+        # Both realms were asked on the running module...
+        self.assertEqual(fake.realms, ["intl", "cn"])
+        # ...and the name the bundled catalogue has never seen is the one
+        # that enters the price input.
+        self.assertEqual(ids, ["gpt-6-sol"])
+
+    def test_the_pricing_lines_reach_the_running_gateway(self):
+        fake = self._fake_gateway()
+        refresher = wb_pricing.PriceRefresher(5)
+        with unittest.mock.patch.dict(sys.modules, {"__main__": fake}):
+            refresher.log("已取价：1 个模型")
+            wb_pricing._log_pricing("按需补价：gpt-6-sol")
+        self.assertEqual(fake.lines, [("[定价] 已取价：1 个模型", "pricing"),
+                                      ("[定价] 按需补价：gpt-6-sol", "pricing")])
+
+    def test_the_alias_set_comes_from_the_running_gateway_too(self):
+        fake = self._fake_gateway()
+        with unittest.mock.patch.dict(sys.modules, {"__main__": fake}):
+            self.assertEqual(wb_pricing.virtual_alias_names(),
+                             {"default-model", "auto"})
+
+    def test_a_stale_second_copy_is_never_preferred(self):
+        running, twin = self._fake_gateway(), self._fake_gateway()
+        with unittest.mock.patch.dict(sys.modules, {"__main__": running,
+                                                    "wb_proxy": twin}):
+            self.assertIs(wb_pricing.gateway_module(), running)
+
+    def test_a_plain_process_uses_the_imported_wb_proxy_module(self):
+        with unittest.mock.patch.dict(
+                sys.modules, {"__main__": types.ModuleType("__main__")}):
+            self.assertIs(wb_pricing.gateway_module(), P)
+
+    def test_nothing_imports_wb_proxy_behind_the_resolver(self):
+        """A stray plain import anywhere else would recreate the twin."""
+        path = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "wb_pricing.py")
+        with open(path, encoding="utf-8") as fh:
+            source = fh.read()
+        hits = [line.strip() for line in source.splitlines()
+                if line.strip().startswith("import wb_proxy")]
+        self.assertEqual(hits, ["import wb_proxy as module"])
 
 
 class OnDemandPricingTests(PricingTestCase):

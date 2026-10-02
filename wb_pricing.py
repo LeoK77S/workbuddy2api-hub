@@ -44,6 +44,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import threading
 import time
 import urllib.request
@@ -1595,11 +1596,31 @@ def live_index():
         return _live_index["models"], (_live_index["by_norm"] or {})
 
 
+# ---- gateway interop ---------------------------------------------------------
+# The gateway is usually imported, but the container starts it as a script
+# (`python wb_proxy.py`), which makes the running instance __main__. A plain
+# `import wb_proxy` would then execute the file a second time inside the same
+# process, and that twin has no account pool - so the live catalogue quietly
+# reads as empty - plus its own log buffer, so pricing lines never reach the
+# panel. Both were observed in production, so resolve the module that is
+# actually running; only fall back to a fresh import when none is loaded.
+
+def gateway_module():
+    """The live gateway module (or a fresh import when nothing is loaded)."""
+    main = sys.modules.get("__main__")
+    if main is not None and hasattr(main, "curated_live_sources"):
+        return main
+    module = sys.modules.get("wb_proxy")
+    if module is not None:
+        return module
+    import wb_proxy as module
+    return module
+
+
 def _log_pricing(msg):
     """Mirror a line into the gateway log; pricing must not depend on it."""
     try:
-        import wb_proxy
-        wb_proxy.add_log_entry("[定价] %s" % msg, tag="pricing")
+        gateway_module().add_log_entry("[定价] %s" % msg, tag="pricing")
     except Exception:
         pass
 
@@ -1648,11 +1669,10 @@ _ALIAS_FALLBACK = ("default-model", "fast-model", "balanced-model",
 
 
 def virtual_alias_names():
-    """The virtual-alias set (non-models). Read from wb_proxy when importable
+    """The virtual-alias set (non-models). Read from the gateway when importable
     so the two sides cannot drift; a local fallback keeps this usable alone."""
     try:
-        import wb_proxy
-        names = getattr(wb_proxy, "VIRTUAL_ALIAS_MODELS", None)
+        names = getattr(gateway_module(), "VIRTUAL_ALIAS_MODELS", None)
         if names:
             return {str(n) for n in names}
     except Exception:
@@ -1994,8 +2014,7 @@ class PriceRefresher(threading.Thread):
         if len(self.logs) > 40:
             self.logs = self.logs[-40:]
         try:
-            import wb_proxy
-            wb_proxy.add_log_entry("[定价] %s" % msg, tag="pricing")
+            gateway_module().add_log_entry("[定价] %s" % msg, tag="pricing")
         except Exception:
             pass
 
@@ -2017,22 +2036,23 @@ class PriceRefresher(threading.Thread):
 
         These are the models the picker can offer but the bundled snapshot has
         never heard of - exactly the ones this change exists for. Read through
-        wb_proxy so both sides apply one filter (is_chat_model plus the
-        variant/free-sibling rules in curate_remote_catalog), never a second
-        copy of the rules. Both realms are asked: the remote catalogue is
-        fetched per realm (fetch_remote_product_config only knows intl/cn), and
-        a model the picker shows on either tab belongs in the price input.
-        Any failure falls back to an empty list: the static catalogue must
-        still be priced, so live trouble can only ever leave a gap, never
-        shrink the coverage.
+        the running gateway module so both sides apply one filter (is_chat_model
+        plus the variant/free-sibling rules in curate_remote_catalog), never a
+        second copy of the rules and never a second copy of the module: that
+        twin would have no account pool, and the live half would read empty.
+        Both realms are asked: the remote catalogue is fetched per realm
+        (fetch_remote_product_config only knows intl/cn), and a model the
+        picker shows on either tab belongs in the price input. Any failure
+        falls back to an empty list: the static catalogue must still be priced,
+        so live trouble can only ever leave a gap, never shrink the coverage.
         """
         try:
-            import wb_proxy
+            gateway = gateway_module()
             known = set(hub_model_ids())
             out, seen = [], set()
             for realm in LIVE_CATALOG_REALMS:
                 try:
-                    entries, _extras = wb_proxy.curated_live_sources(realm)
+                    entries, _extras = gateway.curated_live_sources(realm)
                 except Exception as exc:
                     self.log("live 目录取不到（%s），该区域本轮只按内置目录：%s"
                              % (realm, exc))
