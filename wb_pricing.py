@@ -985,6 +985,12 @@ def usd_cny():
 OPENROUTER_URL = "https://openrouter.ai/api/v1/models"
 USD_CNY = 7.10
 
+# The realms whose live catalogue feeds the price input beyond the bundled
+# snapshot. fetch_remote_product_config() fetches per realm (it knows only
+# intl/cn), so both are asked: a model the picker offers on either tab must
+# be priced without a release.
+LIVE_CATALOG_REALMS = ("intl", "cn")
+
 # Names that differ from OpenRouter's, so the automatic matcher cannot find
 # them. Kept deliberately short: a model that matches by name must not be
 # listed here, or this becomes the maintenance burden it replaced.
@@ -2013,15 +2019,30 @@ class PriceRefresher(threading.Thread):
         never heard of - exactly the ones this change exists for. Read through
         wb_proxy so both sides apply one filter (is_chat_model plus the
         variant/free-sibling rules in curate_remote_catalog), never a second
-        copy of the rules. Any failure falls back to an empty list: the static
-        catalogue must still be priced, so live trouble can only ever leave a
-        gap, never shrink the coverage.
+        copy of the rules. Both realms are asked: the remote catalogue is
+        fetched per realm (fetch_remote_product_config only knows intl/cn), and
+        a model the picker shows on either tab belongs in the price input.
+        Any failure falls back to an empty list: the static catalogue must
+        still be priced, so live trouble can only ever leave a gap, never
+        shrink the coverage.
         """
         try:
             import wb_proxy
-            entries, _extras = wb_proxy.curated_live_sources("all")
             known = set(hub_model_ids())
-            return [mid for mid, _meta in entries if mid and mid not in known]
+            out, seen = [], set()
+            for realm in LIVE_CATALOG_REALMS:
+                try:
+                    entries, _extras = wb_proxy.curated_live_sources(realm)
+                except Exception as exc:
+                    self.log("live 目录取不到（%s），该区域本轮只按内置目录：%s"
+                             % (realm, exc))
+                    continue
+                for mid, _meta in entries or []:
+                    mid = str(mid or "").strip()
+                    if mid and mid not in known and mid not in seen:
+                        seen.add(mid)
+                        out.append(mid)
+            return out
         except Exception as exc:
             self.log("live 目录取不到，本轮只覆盖内置目录：%s" % exc)
             return []

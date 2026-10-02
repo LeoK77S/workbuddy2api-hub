@@ -189,6 +189,43 @@ class UnionInputTests(PricingTestCase):
                         "hy4-preview-sg", "glm-5.3-flash"):
             self.assertNotIn(dropped, ids, dropped)
 
+    def test_live_ids_ask_both_realms_and_dedupe(self):
+        asked = []
+        original = P.curated_live_sources
+
+        def fake(realm):
+            asked.append(realm)
+            if realm == "cn":
+                return [("glm-5.3-flashx", {}), ("kimi-k2.6", {})], True
+            return [("glm-5.3-flashx", {}), ("glm-5.3-flash", {})], True
+
+        P.curated_live_sources = fake
+        try:
+            ids = self._refresher().live_ids()
+        finally:
+            P.curated_live_sources = original
+        # Both realms are asked - the remote catalogue is fetched per realm,
+        # and either tab's additions belong in the price input.
+        self.assertEqual(asked, ["intl", "cn"])
+        self.assertEqual(ids, ["glm-5.3-flashx"])
+
+    def test_one_failing_realm_does_not_hide_the_other(self):
+        original = P.curated_live_sources
+
+        def fake(realm):
+            if realm == "cn":
+                raise RuntimeError("cn catalogue down")
+            return [("glm-5.3-flashx", {})], True
+
+        P.curated_live_sources = fake
+        try:
+            refresher = wb_pricing.PriceRefresher(5)
+            ids = refresher.live_ids()
+        finally:
+            P.curated_live_sources = original
+        self.assertEqual(ids, ["glm-5.3-flashx"])
+        self.assertTrue(any("cn" in line for line in refresher.logs), refresher.logs)
+
     def test_an_extra_id_never_pollutes_the_alias_rows(self):
         # A live catalogue that somehow still names an alias must not get it
         # priced (it cannot match OpenRouter anyway) nor logged as an override.
