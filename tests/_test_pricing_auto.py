@@ -590,6 +590,30 @@ class GapReportTests(PricingTestCase):
         self.assertIsNone(
             wb_pricing.resolve("kimi-k2.8-preview", OR, by_norm)[0])
 
+    def test_the_report_covers_a_live_only_name_that_could_not_be_priced(self):
+        original = P.curated_live_sources
+        P.curated_live_sources = lambda realm: (
+            ([("glm-5.3-flash-20260101", {})] if realm == "intl"
+             else [("glm-5.3-flashx", {})]), True)
+        try:
+            refresher = self._refresher()
+            ok, message = refresher.run_once()
+        finally:
+            P.curated_live_sources = original
+        self.assertTrue(ok, message)
+        items, summary = refresher.gap_report(ttl=0)
+        by_model = {item["model"]: item for item in items}
+        # The live-only name OpenRouter does not carry is visible, with the
+        # closest entry suggested for a hand mapping, and counted in the total.
+        row = by_model["glm-5.3-flash-20260101"]
+        self.assertEqual(row["reason"], "or_missing")
+        self.assertEqual(row["candidates"][0], "z-ai/glm-5.3-flash")
+        self.assertEqual(summary["total"], len(items) - len(ALIASES))
+        # A live-only name that did resolve was priced by that very cycle, so
+        # it is not a gap at all.
+        self.assertNotIn("glm-5.3-flashx", by_model)
+        self.assertIsNotNone(wb_pricing.ensure_policy("glm-5.3-flashx"))
+
     def test_the_status_payload_carries_the_report(self):
         wb_pricing.remember_live_index(OR)
         refresher = self._refresher()

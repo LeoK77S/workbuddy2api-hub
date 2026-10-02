@@ -1999,6 +1999,7 @@ class PriceRefresher(threading.Thread):
         self.last_error = None
         self.last_models = 0
         self.last_extra = 0
+        self._extra_ids = []
         self.last_unpriced = []
         self.next_run = None
         self.logs = []
@@ -2092,6 +2093,10 @@ class PriceRefresher(threading.Thread):
             self.last_error = None
             self.last_models = len(doc["models"])
             self.last_extra = len(extra_ids)
+            # Kept for the panel's gap report, which must show a live-only name
+            # that could not be priced too - that is the case the whole
+            # unpriced view exists for. Memory only, no network on that path.
+            self._extra_ids = list(extra_ids)
             self.last_unpriced = list(unpriced)
             self.invalidate_gaps()
             removed = []
@@ -2113,8 +2118,11 @@ class PriceRefresher(threading.Thread):
     def gap_report(self, max_items=200, ttl=30.0):
         """(items, summary) - which models show a dash, and why. Panel view.
 
-        Computed from the in-memory index and the stored policy table; cached
-        for a moment because the settings page polls it.
+        Computed from the in-memory index and the stored policy table, plus the
+        live ids of the last good cycle - a model the upstream just added and
+        OpenRouter does not carry has to be visible here, that is the gap an
+        operator can close by hand. Cached for a moment because the settings
+        page polls it.
         """
         with self._gap_lock:
             cached = self._gap_cache
@@ -2122,7 +2130,8 @@ class PriceRefresher(threading.Thread):
                 return cached["items"], cached["summary"]
         or_models, by_norm = live_index()
         _at, assignment = current_assignment()
-        items, summary = gap_items(or_models, by_norm, variants=variant_inherit_enabled(),
+        items, summary = gap_items(or_models, by_norm, extra_ids=self._extra_ids,
+                                   variants=variant_inherit_enabled(),
                                    priced=set(assignment))
         if max_items and len(items) > max_items:
             items = items[:max_items]
