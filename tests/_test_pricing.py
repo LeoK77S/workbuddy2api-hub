@@ -226,6 +226,26 @@ class PricingEngineTests(unittest.TestCase):
             total["cny"], rate["input_cache_miss"] * self.pricing["meta"]["usd_cny"],
             places=4)
 
+    def test_reasoning_tokens_ride_inside_completion(self):
+        # Pinned premise: the upstream counts reasoning tokens inside
+        # completion_tokens. Measured live on 2026-10-02 - a thinking request
+        # returned completion=242 with reasoning=238, and
+        # total_tokens = prompt + completion; across 15k logged rows
+        # reasoning never exceeded completion (154 rows were all reasoning).
+        # The output rate therefore applies once, to completion; adding
+        # reasoning_tokens on top would bill the same tokens twice, so a row's
+        # reasoning count must not move the estimate.
+        rate = self.pricing["models"]["deepseek-v4.1-flash"]["flat"]
+        factor = self.pricing["meta"]["usd_cny"]
+        row = {"model": "deepseek-v4.1-flash", "at": _AT, "prompt_tokens": 0,
+               "cached_tokens": 0, "completion_tokens": 1000}
+        plain = wb_pricing.compute_row(dict(row), pricing=self.pricing)
+        self.assertAlmostEqual(
+            plain["cny"], 1000 * rate["output"] / 1000000.0 * factor, places=9)
+        with_reasoning = wb_pricing.compute_row(
+            dict(row, reasoning_tokens=900), pricing=self.pricing)
+        self.assertAlmostEqual(with_reasoning["cny"], plain["cny"], places=12)
+
     def test_dirty_cache_counts_cannot_exceed_prompt(self):
         row = {"model": "deepseek-v4.1-flash", "at": _AT,
                "prompt_tokens": 1000, "cached_tokens": 5000,

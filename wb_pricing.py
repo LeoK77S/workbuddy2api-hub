@@ -924,6 +924,11 @@ def compute_row(row, pricing=None):
     rate, band, factor = _rate_for(entry, row.get("at"), prompt, meta)
     cached = min(_as_float(row.get("cached_tokens")), prompt)
     uncached = prompt - cached
+    # The output rate applies to completion_tokens alone: the upstream counts
+    # the reasoning tokens inside completion (verified on live and logged rows,
+    # see tests/_test_pricing.py), and so does this gateway when it has to
+    # estimate a missing usage block. Billing reasoning_tokens on top would
+    # charge them twice.
     output = _as_float(row.get("completion_tokens"))
     miss = _pick(rate, "input_cache_miss")
     hit = _pick(rate, "input_cache_hit", "input_cache_miss")
