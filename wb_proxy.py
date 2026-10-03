@@ -195,6 +195,27 @@ USAGE_LOG = os.path.join(USAGE_DIR, "usage.jsonl")
 DASHBOARD_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.html")
 USAGE_FIELDS = ("prompt_tokens", "completion_tokens", "reasoning_tokens",
                 "cached_tokens", "total_tokens", "credit")
+# Upstream reports credits to two decimals (0.05, 0.13, ...), but they are
+# summed as floats here, so a running total can come out as 0.30000000000000004.
+# The figures are rounded where they leave the process rather than at every
+# addition: one boundary, and the panel, the API and any client all see the
+# same two-decimal number.
+CREDIT_DECIMALS = 2
+
+
+def _round_credits(node):
+    """Round every "credit" value in a stats tree to the cent, in place."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "credit" and isinstance(value, (int, float)) \
+                    and not isinstance(value, bool):
+                node[key] = round(float(value), CREDIT_DECIMALS)
+            else:
+                _round_credits(value)
+    elif isinstance(node, list):
+        for item in node:
+            _round_credits(item)
+    return node
 # Web-panel access control. The panel is gated by its own password (default
 # "admin"), independent of the /v1 API key. Sessions live in memory only, so a
 # restart forces browsers to log in again.
@@ -879,7 +900,7 @@ def usage_snapshot(realm=None, ttl=None, range=None, since=None, until=None):
         hit = _snap_cache.get(key)
         if hit is not None and (now - hit[0]) < ttl:
             return hit[1]
-        data = _usage_snapshot_uncached(r, since=lo, until=hi)
+        data = _round_credits(_usage_snapshot_uncached(r, since=lo, until=hi))
         _snap_cache[key] = (time.time(), data)
     return data
 
@@ -1130,7 +1151,7 @@ def recent_usage(limit=100, realm=None, page=1):
         "page": page,
         "limit": limit,
         "total_pages": total_pages,
-        "rows": page_rows
+        "rows": _round_credits(page_rows)
     }
 POOL = None
 SCHEDULER = None
@@ -1338,7 +1359,8 @@ def compute_usage_analytics(ttl=None, realm=None, range=None, since=None, until=
         entry = _analytics_cache.get(cache_key)
         if entry is not None and (now - entry["at"]) < ttl:
             return entry["data"]
-        data = _compute_usage_analytics_uncached(realm=realm_scope(realm), since=lo, until=hi)
+        data = _round_credits(
+            _compute_usage_analytics_uncached(realm=realm_scope(realm), since=lo, until=hi))
         _analytics_cache[cache_key] = {"at": time.time(), "data": data}
     return data
 

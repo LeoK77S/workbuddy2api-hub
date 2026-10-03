@@ -1184,12 +1184,12 @@ function updateUI(){
   cnAccts.forEach(a => { if(a.credits && a.credits.remain != null){ cnCred += a.credits.remain; hasCnCred = true; } });
 
   const elIntlCred = document.getElementById("tabIntlCredits");
-  if(elIntlCred) elIntlCred.textContent = hasIntlCred ? fmt(intlCred) : "—";
+  if(elIntlCred) elIntlCred.textContent = hasIntlCred ? fmtCredit(intlCred) : "—";
   const elIntlAcct = document.getElementById("tabIntlAccts");
   if(elIntlAcct) elIntlAcct.textContent = intlAccts.length;
 
   const elCnCred = document.getElementById("tabCnCredits");
-  if(elCnCred) elCnCred.textContent = hasCnCred ? fmt(cnCred) : "—";
+  if(elCnCred) elCnCred.textContent = hasCnCred ? fmtCredit(cnCred) : "—";
   const elCnAcct = document.getElementById("tabCnAccts");
   if(elCnAcct) elCnAcct.textContent = cnAccts.length;
 };
@@ -1585,6 +1585,14 @@ async function doDailyChatWeb(btn){
 }
 
 const fmt = n => (n ?? 0).toLocaleString('en-US');
+// Credits are two-decimal quantities upstream (0.05, 0.13, ...), so they are
+// shown with two decimals everywhere: a spend and a balance then read as the
+// same kind of number instead of one looking exact and the other rounded.
+const fmtCredit = n => {
+  const v = Number(n);
+  if(!Number.isFinite(v)) return '—';
+  return v.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+};
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ms = v => v == null ? '—' : (v >= 1000 ? (v/1000).toFixed(2) + ' s' : Math.round(v) + ' ms');
 const pct = v => v == null ? '—' : v.toFixed(1) + '%';
@@ -1751,7 +1759,7 @@ function accountRow(a){
   const err = a.lastError && !(pills && a.lastError === 'HTTP 429 (model throttled)')
     ? '<div class="hint" style="color:var(--warn);margin:2px 0 0">' + esc(a.lastError) + '</div>' : '';
   const cred = a.credits;
-  const credText = cred ? ('<b style="color:var(--accent2)">' + fmt(cred.remain) + '</b> / ' + fmt(cred.size)) : '<span style="color:var(--dim)">未查询</span>';
+  const credText = cred ? ('<b style="color:var(--accent2)">' + fmtCredit(cred.remain) + '</b> / ' + fmtCredit(cred.size)) : '<span style="color:var(--dim)">未查询</span>';
   return '<tr>'
     + '<td style="text-align:center;white-space:nowrap" data-label="版本">' + realmBadge + '</td>'
     + '<td style="text-align:left" data-label="账号">'
@@ -2333,7 +2341,7 @@ async function refreshInner(){
   document.getElementById('cards').innerHTML =
     card('可用账号池', activeAccts + ' <span style="font-size:13px;font-weight:400;color:var(--dim)">/ ' + totalAccts + ' 正常</span>', poolSub, 'accent') +
     card('积分余额', hasCreds ? (fmt(totRemain) + ' <span style="font-size:13px;font-weight:400;color:var(--dim)">积分</span>') : '正常可用', subCredit, 'accent2') +
-    card('网关调用量', fmt(t.requests) + ' <span style="font-size:13px;font-weight:400;color:var(--dim)">次</span>', '本出口累计消耗 ' + fmt(t.total_tokens) + ' Token · ' + Number(t.credit || 0).toFixed(2) + ' 积分', '') +
+    card('网关调用量', fmt(t.requests) + ' <span style="font-size:13px;font-weight:400;color:var(--dim)">次</span>', '本出口累计消耗 ' + fmt(t.total_tokens) + ' Token · ' + fmtCredit(t.credit) + ' 积分', '') +
     card('请求成功率', succStr, errSub, perf.errors ? 'warn' : 'accent2');
 
   const total = recent.total || 0;
@@ -2396,7 +2404,7 @@ async function refreshInner(){
         + '<td style="color:var(--think)" data-label="思考">' + fmt(r.reasoning_tokens) + '</td>'
         + '<td data-label="缓存">' + (r.cache_hit_pct!=null ? r.cache_hit_pct+'%' : '—') + '</td>'
         + '<td data-label="总 token"><b>' + fmt(r.total_tokens) + '</b></td>'
-        + '<td data-label="积分" style="color:var(--accent2)">' + (r.credit != null ? Number(r.credit).toFixed(2) : '—') + '</td>'
+        + '<td data-label="积分" style="color:var(--accent2)">' + fmtCredit(r.credit) + '</td>'
       + '</tr>').join('') + '</tbody></table>'
     : '<div class="empty">还没有请求记录</div>';
 }
@@ -4117,9 +4125,9 @@ function renderAnalytics(data){
         let creditStr = '<span style="color:var(--dim)">—</span>';
         if(a.credits && a.credits.remain != null){
           if(a.credits.size){
-            creditStr = '<b style="color:var(--accent2)">' + fmt(a.credits.remain) + '</b> <span style="color:var(--dim);font-size:11px">/ ' + fmt(a.credits.size) + ' 积分</span>';
+            creditStr = '<b style="color:var(--accent2)">' + fmtCredit(a.credits.remain) + '</b> <span style="color:var(--dim);font-size:11px">/ ' + fmtCredit(a.credits.size) + ' 积分</span>';
           } else {
-            creditStr = '<b style="color:var(--accent2)">' + fmt(a.credits.remain) + '</b> <span style="color:var(--dim);font-size:11px">积分</span>';
+            creditStr = '<b style="color:var(--accent2)">' + fmtCredit(a.credits.remain) + '</b> <span style="color:var(--dim);font-size:11px">积分</span>';
           }
         }
 
@@ -4132,7 +4140,7 @@ function renderAnalytics(data){
           + '<td>' + creditStr + '</td>'
           + '<td>' + fmt(st.requests || 0) + '</td>'
           + '<td><b style="color:var(--accent)">' + fmt(st.total_tokens || 0) + '</b></td>'
-          + '<td><b style="color:var(--accent2)">' + (st.credit != null ? Number(st.credit).toFixed(2) : '0.00') + '</b></td>'
+          + '<td><b style="color:var(--accent2)">' + fmtCredit(st.credit || 0) + '</b></td>'
           + '<td style="text-align:left;max-width:440px">' + pills + '</td>'
           + '</tr>';
       }).join('');
