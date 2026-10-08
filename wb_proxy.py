@@ -2490,6 +2490,25 @@ INTL_UI_ORDER = [
     "kimi-k2.6",
     "kimi-k2.8-preview",
 ]
+def merge_reasoning(base, live):
+    """Field-level merge of one model's reasoning block.
+
+    The live catalogue is the source of truth, but it does not always restate
+    every field: the desktop endpoint sometimes gives a bare `effort` where the
+    bundled table knows the level is selectable. A top-level update would drop
+    `supportedEfforts`, and an `effort` without it reads as a pin - the model
+    then looks unselectable in /v1/models and every request to it is reported at
+    the wrong level. So the two blocks are merged field by field, and a block
+    that ends up with `supportedEfforts` is selectable: its `effort` is the
+    default restated, not a pin.
+    """
+    out = dict(base) if isinstance(base, dict) else {}
+    if isinstance(live, dict):
+        out.update(live)
+    if out.get("supportedEfforts") and out.get("effort"):
+        out.setdefault("defaultEffort", out["effort"])
+        out.pop("effort", None)
+    return out
 def merge_catalog(primary, realm=None, extras=False):
     r = realm or CURRENT_REALM
     merged = {}
@@ -2511,7 +2530,10 @@ def merge_catalog(primary, realm=None, extras=False):
             continue
         if meta:
             base = merged.get(mid) or {}
+            base_reasoning = base.get("reasoning")
             base.update(meta)
+            if isinstance(meta.get("reasoning"), dict):
+                base["reasoning"] = merge_reasoning(base_reasoning, meta["reasoning"])
             merged[mid] = base
         elif mid not in merged:
             merged[mid] = {}
@@ -2542,12 +2564,23 @@ def note_bundled_reasoning(realm, live, entries):
 
     The live catalogue is the source of truth and the snapshot is only the
     fallback, so values the snapshot alone carries can be no fresher than the
-    snapshot. One line per change is enough to notice that.
+    snapshot. Two shapes put them there: a model the live catalogue gives no
+    reasoning block at all, and one it gives a bare `effort` for where the
+    snapshot knows the level is selectable. One line per change is enough.
     """
     live_meta = dict(live or [])
-    missing = sorted(mid for mid, meta in entries
-                     if (meta.get("reasoning") or {})
-                     and not ((live_meta.get(mid) or {}).get("reasoning")))
+
+    def from_snapshot(mid, meta):
+        reasoning = meta.get("reasoning") or {}
+        if not reasoning:
+            return False
+        live_reasoning = (live_meta.get(mid) or {}).get("reasoning") or {}
+        if not live_reasoning:
+            return True
+        return bool(reasoning.get("supportedEfforts")) \
+            and not live_reasoning.get("supportedEfforts")
+
+    missing = sorted(mid for mid, meta in entries if from_snapshot(mid, meta))
     if not missing:
         _catalog_fallback_log.pop(realm, None)
         return
@@ -2555,8 +2588,8 @@ def note_bundled_reasoning(realm, live, entries):
         return
     _catalog_fallback_log[realm] = frozenset(missing)
     shown = ", ".join(missing[:6]) + (" ..." if len(missing) > 6 else "")
-    log("catalog    : no reasoning block in the live catalogue for %d model(s); "
-        "using the bundled table: %s" % (len(missing), shown))
+    log("catalog    : bundled table fills in reasoning controls the live "
+        "catalogue omits for %d model(s): %s" % (len(missing), shown))
 def fetch_models(realm=None):
     r = realm or CURRENT_REALM
     with _lock:
@@ -4078,9 +4111,14 @@ def model_fixed_effort(model):
     reasoning.effort without supportedEfforts means the model always runs at
     that level: /v1/models advertises it as reasoning_fixed_effort and the
     picker offers no choice for it, so an effort the request carries anyway does
-    not change what ran.
+    not change what ran. A model that declares supportedEfforts is selectable
+    whatever else its block carries - an `effort` beside it is the default, not
+    a pin.
     """
-    effort = model_reasoning_meta(model).get("effort")
+    reasoning = model_reasoning_meta(model)
+    if reasoning.get("supportedEfforts"):
+        return None
+    effort = reasoning.get("effort")
     return effort.strip() if isinstance(effort, str) and effort.strip() else None
 
 
