@@ -5955,15 +5955,24 @@ def messages_to_chat(payload):
         system = (system + "\n" + note) if system else note
     if system:
         messages.append({"role": "system", "content": system})
-    for item in messages_in:
+    for index, item in enumerate(messages_in):
         if not isinstance(item, dict):
             continue
         role = _anthropic_text(item.get("role")).strip() or "user"
+        content = item.get("content")
+        if role in ("system", "developer"):
+            # Claude Code >= 2.1.286 turns on Anthropic's mid-conversation
+            # system beta and carries system messages inside `messages`. The
+            # upstream knows the system role, so keep the message where the
+            # client put it rather than failing the whole request.
+            text = _anthropic_system_text(content) or _anthropic_content_to_text(content)
+            if text:
+                messages.append({"role": "system", "content": text})
+            continue
         if role not in ("user", "assistant"):
             raise ValueError(
-                "messages[].role must be user or assistant; "
-                "pass a system prompt in the top-level system field")
-        content = item.get("content")
+                "messages[%d].role %r must be user or assistant; "
+                "pass a system prompt in the top-level system field" % (index, role))
         if isinstance(content, str):
             messages.append({"role": role, "content": content})
         elif isinstance(content, list):

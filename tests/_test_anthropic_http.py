@@ -280,9 +280,9 @@ try:
         ("missing model", {"messages": [{"role": "user", "content": "hi"}]}),
         ("empty messages", {"model": "deepseek-v4.1-flash", "messages": []}),
         ("messages not a list", {"model": "deepseek-v4.1-flash", "messages": "x"}),
-        ("system role in messages",
+        ("unsupported role in messages",
          {"model": "deepseek-v4.1-flash",
-          "messages": [{"role": "system", "content": "s"}]}),
+          "messages": [{"role": "tool", "content": "s"}]}),
     ):
         code, _h, body = request("POST", "/v1/messages", bad,
                                  headers={"x-api-key": "TESTKEY"})
@@ -307,7 +307,10 @@ try:
         "POST", "/v1/messages",
         {"model": "deepseek-v4.1-flash", "max_tokens": 64,
          "system": [{"type": "text", "text": "be brief"}],
-         "messages": [{"role": "user", "content": [{"type": "text", "text": "say hi"}]}]},
+         "messages": [
+             {"role": "user", "content": [{"type": "text", "text": "say hi"}]},
+             {"role": "system", "content": [{"type": "text", "text": "hook ctx"}]},
+         ]},
         headers={"x-api-key": "TESTKEY"})
     msg = json.loads(body or b"{}")
     check("200 with JSON", code == 200
@@ -327,6 +330,9 @@ try:
               for m in sent.get("messages") or []), sent.get("messages"))
     check("upstream saw the user text",
           any(m.get("role") == "user" and "say hi" in str(m.get("content"))
+              for m in sent.get("messages") or []), sent.get("messages"))
+    check("mid-conversation system role reaches upstream as a system message",
+          any(m.get("role") == "system" and "hook ctx" in str(m.get("content"))
               for m in sent.get("messages") or []), sent.get("messages"))
 
     print()

@@ -195,5 +195,28 @@ count = P._anthropic_estimate_chat_tokens(P.messages_to_chat({"model": "m", "mes
 check("count is positive", count > 0, count)
 
 print()
+print("[8] mid-conversation system role is translated, not rejected")
+mid = P.messages_to_chat({
+    "model": "m",
+    "system": "top",
+    "messages": [
+        {"role": "user", "content": "hi"},
+        {"role": "system", "content": [{"type": "text", "text": "hook context"}]},
+        {"role": "assistant", "content": "ok"},
+    ],
+})
+roles = [m.get("role") for m in mid["messages"]]
+check("system message keeps its place in the conversation",
+      roles == ["system", "user", "system", "assistant"], roles)
+check("its text blocks are flattened into the message",
+      mid["messages"][2].get("content") == "hook context", mid["messages"][2])
+try:
+    P.messages_to_chat({"model": "m", "messages": [{"role": "tool", "content": "x"}]})
+    check("an unsupported role is still rejected", False, "no ValueError raised")
+except ValueError as exc:
+    check("an unsupported role is still rejected and named",
+          "tool" in str(exc), exc)
+
+print()
 print("PASS=%d FAIL=%d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)
