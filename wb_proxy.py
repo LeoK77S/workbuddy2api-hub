@@ -68,7 +68,97 @@ import wb_prompt
 import wb_modelsdev
 import wb_probes
 import wb_updates
-import wb_agents
+# 「智能体配置」(wb_agents) 的前提是「浏览器和网关进程在同一台机器上」：它把网关
+# 地址写进 ~/.claude/settings.json 这类**服务端主机**的配置目录，看板在别的机器上
+# 打开时改的是容器/路由器里的文件，用户自己电脑上的 CLI 根本看不到（issue #246）。
+# 所以它不占一级导航，只对同机看板开放，并且**懒加载**：判定不通过的部署连这份
+# 模块都不 import（见 agents_request_allowed）。
+_WB_AGENTS = None
+def wb_agents_module():
+    """按需 import wb_agents：服务端 / Docker / OpenWrt 部署永远不载入它。"""
+    global _WB_AGENTS
+    if _WB_AGENTS is None:
+        import wb_agents
+        _WB_AGENTS = wb_agents
+    return _WB_AGENTS
+_LOCAL_HOST_ADDRS = None
+def local_host_addresses():
+    """本机自己的地址集合：回环 + 本机网卡地址。
+
+    看板用 `http://<本机局域网 IP>:8788` 打开时，对端不是回环但仍是同一台机器，
+    所以只认 127.0.0.1 会把这类本机访问误判成远程。结果缓存：网卡地址只在换网时
+    变化，而缓存里多留一个本机地址最多让「本来就在本机的请求」通过。
+    """
+    global _LOCAL_HOST_ADDRS
+    if _LOCAL_HOST_ADDRS is not None:
+        return _LOCAL_HOST_ADDRS
+    addrs = {"127.0.0.1", "::1"}
+    for name in ("localhost", socket.gethostname()):
+        try:
+            for info in socket.getaddrinfo(name, None):
+                addrs.add(str(info[4][0]).split("%")[0])
+        except Exception:
+            pass
+    # UDP connect 只选路由、不发包，拿到的就是本机出口地址
+    for family, probe in ((socket.AF_INET, ("8.8.8.8", 80)),
+                          (socket.AF_INET6, ("2001:4860:4860::8888", 80))):
+        try:
+            sock = socket.socket(family, socket.SOCK_DGRAM)
+            try:
+                sock.connect(probe)
+                addrs.add(str(sock.getsockname()[0]).split("%")[0])
+            finally:
+                sock.close()
+        except Exception:
+            pass
+    _LOCAL_HOST_ADDRS = addrs
+    return addrs
+def host_owns_address(addr):
+    """这个 IP 是不是本机自己的（回环或本机网卡地址）。"""
+    text = str(addr or "").split("%")[0].strip()
+    if not text:
+        return False
+    try:
+        if ipaddress.ip_address(text).is_loopback:
+            return True
+    except ValueError:
+        return False
+    return text in local_host_addresses()
+_AGENTS_SERVER_FORM = None
+def agents_server_form():
+    """网关是不是跑在容器 / OpenWrt 里。
+
+    这些形态下客户端配置目录属于容器或路由器，而不是浏览器的机器，整个功能都不
+    成立（issue #246 第 3 节）。判据只看容器与 OpenWrt 这两类明确的标记，不猜。
+    """
+    global _AGENTS_SERVER_FORM
+    if _AGENTS_SERVER_FORM is None:
+        form = False
+        try:
+            form = (os.path.exists("/.dockerenv")
+                    or os.path.exists("/run/.containerenv")
+                    or os.path.exists("/etc/openwrt_release"))
+            if not form:
+                try:
+                    with open("/proc/1/cgroup", "r", encoding="utf-8",
+                              errors="replace") as fh:
+                        cgroups = fh.read()
+                    form = any(tag in cgroups
+                               for tag in ("docker", "containerd", "kubepods"))
+                except OSError:
+                    form = False
+            if not form:
+                try:
+                    with open("/etc/os-release", "r", encoding="utf-8",
+                              errors="replace") as fh:
+                        release = fh.read()
+                    form = re.search(r'^ID\s*=\s*"?openwrt', release, re.M) is not None
+                except OSError:
+                    form = False
+        except Exception:
+            form = False
+        _AGENTS_SERVER_FORM = form
+    return _AGENTS_SERVER_FORM
 IS_WINDOWS = os.name == "nt"
 def launcher_hint(port):
     """Platform-appropriate launcher command for starting on another port."""
@@ -11455,7 +11545,30 @@ class Handler(BaseHTTPRequestHandler):
             pass
         return models
 
+    def _agents_request_allowed(self):
+        """这次请求能不能用「智能体配置」。
+
+        判据就是功能的前提「浏览器和网关是不是同一台机器」：取真实来源地址
+        （经反代时按 X-Real-IP / X-Forwarded-For，与登录限流同一套逻辑），
+        必须是本机地址；容器 / OpenWrt 形态一律不开放。判定不通过时调用方
+        直接回绝，连 wb_agents 都不 import。
+        """
+        if agents_server_form():
+            return False
+        try:
+            peer = self.client_address[0]
+        except Exception:
+            return False
+        try:
+            client = login_rate_limit_key(peer, self.headers)
+        except Exception:
+            client = peer
+        return host_owns_address(client)
+
     def _get_agents(self):
+        # 服务端 / Docker / OpenWrt 或远程看板：功能不成立，前端据此隐藏入口。
+        if not self._agents_request_allowed():
+            return self._json(200, {"enabled": False})
         keys = []
         try:
             for entry in configured_keys():
@@ -11468,7 +11581,8 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             keys = []
         return self._json(200, {
-            "clients": list(wb_agents.overview(ACCOUNTS_DIR).values()),
+            "enabled": True,
+            "clients": list(wb_agents_module().overview(ACCOUNTS_DIR).values()),
             "models": self._agents_models(),
             "keys": keys,
             "global_key_set": bool(API_KEY),
@@ -11491,7 +11605,7 @@ class Handler(BaseHTTPRequestHandler):
             for entry in keys:
                 if entry.get("id") == key_id:
                     return entry.get("key") or None
-            raise wb_agents.AgentConfigError(
+            raise wb_agents_module().AgentConfigError(
                 "no configured key with id %r" % key_id)
         # Default: the global key when set, else the first enabled panel key.
         if API_KEY:
@@ -11531,7 +11645,7 @@ class Handler(BaseHTTPRequestHandler):
         warnings = []
         try:
             api_key = self._agents_resolve_key(payload, warnings)
-        except wb_agents.AgentConfigError as exc:
+        except wb_agents_module().AgentConfigError as exc:
             return self._error(400, str(exc), "invalid_request_error")
         if not api_key:
             if auth_required():
@@ -11542,10 +11656,10 @@ class Handler(BaseHTTPRequestHandler):
             warnings.append("gateway has no key configured; wrote placeholder "
                             "'wb-local' (auth is off, so any value works)")
         try:
-            result = wb_agents.integrate(
+            result = wb_agents_module().integrate(
                 ACCOUNTS_DIR, client_id, base_url, api_key,
                 model=model, models=cleaned_models)
-        except wb_agents.AgentConfigError as exc:
+        except wb_agents_module().AgentConfigError as exc:
             return self._error(400, str(exc), "invalid_request_error")
         except Exception as exc:
             return self._error(500, "agents apply failed: %s" % exc)
@@ -11560,8 +11674,8 @@ class Handler(BaseHTTPRequestHandler):
         if not client_id:
             return self._error(400, "client is required", "invalid_request_error")
         try:
-            result = wb_agents.restore(ACCOUNTS_DIR, client_id)
-        except wb_agents.AgentConfigError as exc:
+            result = wb_agents_module().restore(ACCOUNTS_DIR, client_id)
+        except wb_agents_module().AgentConfigError as exc:
             return self._error(400, str(exc), "invalid_request_error")
         except Exception as exc:
             return self._error(500, "agents restore failed: %s" % exc)
@@ -12690,6 +12804,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._error(
                     401, "panel password required", "invalid_request_error"
                 )
+            # 同机之外的看板一律按「没有这个路由」处理：这些写入落在服务端主机
+            # 的配置目录里，远程调用只会改错机器（issue #246）。
+            if not self._agents_request_allowed():
+                return self._error(404, "not found", "invalid_request_error")
             payload = self._payload_or_error()
             if payload is None:
                 return
