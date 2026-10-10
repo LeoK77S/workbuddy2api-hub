@@ -85,7 +85,7 @@ const MIXED = [
   // —— 国内版：手动停用 / 账号级限流 / 账号日限额 / 单模型日限额 ——
   {uid: 'cn-off-0001', nickname: 'CN停用', realm: 'cn', enabled: false},
   {uid: 'cn-cool-0002', nickname: 'CN限流', realm: 'cn', enabled: true,
-   inCooldown: true, cooldownFor: 600, lastError: '上游 429',
+   inCooldown: true, cooldownFor: 600, coolFor: 600, lastError: '上游 429',
    lastErrorDetail: 'HTTP 429 upstream'},
   {uid: 'cn-daily-0003', nickname: 'CN日限', realm: 'cn', enabled: true,
    dailyLimitBlocked: true, dailyTokensToday: 200000000, dailyTokenLimit: 200000000},
