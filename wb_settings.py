@@ -57,6 +57,23 @@ ACCOUNTS_COLLAPSED_KEY = "accounts_collapsed"
 # normalisation as the disclosure above: only an explicit boolean true hides
 # the row, so a hand edit or an older client cannot drop it by accident.
 KEY_BEFORE_HIDDEN_KEY = "key_before_hidden"
+# Which top-bar pages the panel keeps out of the nav, as a list of page keys
+# ("tasks", "logs", ...). Deliberately not validated against a page registry:
+# the pages live in dashboard.html, and the panel ignores a key it does not
+# know, so adding or renaming a page upstream never needs a change here. A
+# missing key, a hand-written string or any other malformed value reads as
+# "nothing hidden" - the fail-safe direction for a display preference.
+HIDDEN_PAGES_KEY = "hidden_pages"
+# Page keys are the same lowercase identifiers switchMainTab() switches on.
+PAGE_KEY_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+# The one page that is never hidden, whatever the request or the file says: it
+# is where this switch itself lives, so hiding it would leave the panel with no
+# way back. Dropped during normalisation, so the stored file cannot hold it
+# either and no client of this API can lock itself out.
+PAGE_KEEP_VISIBLE = "settings"
+# Bound on the stored list. The panel sends at most one entry per page, so this
+# only limits what a hand edit can put in the file.
+MAX_HIDDEN_PAGES = 32
 
 # Instance-wide default UI language. The dashboard can override this per
 # browser with localStorage; this key is the fallback when no override exists.
@@ -670,6 +687,27 @@ def limit_value(accounts_dir, key, realm=None):
     return entry.get("global") or 0
 
 
+def limit_values_many(accounts_dir, keys):
+    """Several guards resolved for every realm, off one settings read.
+
+    limit_values() per key re-reads the file (cached by mtime/size, so a stat)
+    and re-normalizes the whole grouped map every call; the daily guards all
+    want the same map on the request path, so they share one read here. One
+    implementation only: limit_values() is this with a single key.
+    """
+    grouped = limits_data(accounts_dir)
+    out = {}
+    for key in keys:
+        entry = grouped.get(key) or _empty_limit_entry()
+        global_value = entry.get("global") or 0
+        values = {"global": global_value}
+        for realm in LIMIT_REALMS:
+            override = entry.get(realm)
+            values[realm] = global_value if override is None else override
+        out[key] = values
+    return out
+
+
 def limit_values(accounts_dir, key):
     """One guard resolved for every realm plus the global it inherits.
 
@@ -677,13 +715,7 @@ def limit_values(accounts_dir, key):
     the global value when no override is set, so the pool can hand each
     account its own realm without a second settings lookup.
     """
-    entry = limits_data(accounts_dir).get(key) or _empty_limit_entry()
-    global_value = entry.get("global") or 0
-    values = {"global": global_value}
-    for realm in LIMIT_REALMS:
-        override = entry.get(realm)
-        values[realm] = global_value if override is None else override
-    return values
+    return limit_values_many(accounts_dir, (key,))[key]
 
 
 def set_limit(accounts_dir, key, scope, value):
@@ -1186,6 +1218,51 @@ def set_key_before_hidden(accounts_dir, hidden):
         data[KEY_BEFORE_HIDDEN_KEY] = hidden
         save(accounts_dir, data)
     return hidden
+
+
+def _clean_page_keys(value):
+    """Normalise a stored or patched page list into a clean list of keys.
+
+    Anything that is not a list of well-formed keys is dropped rather than
+    rejected, for the same reason the booleans above normalise instead of
+    raising: the file is hand-editable, and the fail-safe direction for a
+    display preference is "nothing hidden". Duplicates and over-long lists are
+    collapsed so a hand edit cannot turn the panel's nav into a repeat of one
+    entry.
+    """
+    if not isinstance(value, (list, tuple)):
+        return []
+    out = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        key = item.strip()
+        if not PAGE_KEY_RE.match(key) or key == PAGE_KEEP_VISIBLE or key in out:
+            continue
+        out.append(key)
+        if len(out) >= MAX_HIDDEN_PAGES:
+            break
+    return out
+
+
+def hidden_pages(accounts_dir):
+    """The top-bar pages the panel hides. Empty on a fresh install.
+
+    Normalised on every read, so a hand edit that puts a string, an unknown key
+    or a duplicate in the file cannot hide a page twice or hide something the
+    panel would then be unable to put back.
+    """
+    return _clean_page_keys(load(accounts_dir).get(HIDDEN_PAGES_KEY))
+
+
+def set_hidden_pages(accounts_dir, pages):
+    """Persist the hidden-page list. Returns the stored (normalised) list."""
+    cleaned = _clean_page_keys(pages)
+    with _lock:
+        data = load(accounts_dir)
+        data[HIDDEN_PAGES_KEY] = cleaned
+        save(accounts_dir, data)
+    return cleaned
 
 
 def update_check_enabled(accounts_dir):

@@ -254,6 +254,24 @@ CN_REALM_MARKERS = ("copilot.tencent.com", "codebuddy.cn", "workbuddy.cn")
 INTL_REALM_MARKERS = ("workbuddy.ai", "codebuddy.ai")
 REALM_MARKERS = {"cn": CN_REALM_MARKERS, "intl": INTL_REALM_MARKERS}
 
+#: 「限额联动」只覆盖免费模型（用户口径，2026-10-10）：只有这些模型的 6004
+#: 撞线才做「记录 → 跨重启禁用」；付费模型不参与——它们的消耗按积分计费，
+#: 不在这套 24h 窗口配额里。键与 Account.realm 的取值一致（intl / cn），
+#: 国内版的 deepseek-v4.1-flash 是收费模型（x0.11），不在名单内。
+FREE_CAP_MODELS = {
+    "intl": frozenset({"hy4-preview-f", "hy3", "deepseek-v4.1-flash"}),
+    "cn": frozenset({"hy4-preview-f", "hy3"}),
+}
+
+
+def is_free_cap_model(realm, model):
+    """该「账号区域 × 模型」是否在限额联动的范围内。
+
+    未知区域或空模型一律不在：范围判断必须失败关闭，宁可漏记一次也不把
+    付费模型拉进持久化禁用。
+    """
+    return bool(model) and str(model) in FREE_CAP_MODELS.get(str(realm or ""), ())
+
 #: 上游用一个远超任何真实计费周期的抵扣截止时间表示「不会过期」。实测
 #: （2026-10-08，31 行真实包数据）Free Plan Subscription 与个人体验版的
 #: DeductionEndTime 落在 2034/2035 年，而真实包周期是 14 天或 1 个月。超过
@@ -529,6 +547,27 @@ class Account(object):
         # 国内版每天一次的「对话活跃上报」（点亮官方 growth 连登/热力墙）上次
         # 成功的时刻；与 lastCheckin 同款：只按「今天成功过没有」做闸门。
         self.last_activity_report = data.get("lastActivityReport") or None
+        # 上游「窗口额度用满」的记录（429 / code 6004）：model -> {"at": 撞线时刻,
+        # "reset": 上游给的恢复时刻}。**持久化**（与其它节流窗口不同）：重启后
+        # 仍然知道这个组合在恢复时间内，不用等下一次撞线才重新发现。
+        # 只有带重置时刻的 6004 才记——那才是「额度用满」的可判定证据；
+        # 其余 429（无重置时刻的软限流）不在这里。记录范围限免费模型
+        # （FREE_CAP_MODELS，见 note_model_cap）。
+        self.model_caps = {}
+        for mid, entry in (data.get("modelCaps") or {}).items():
+            if not isinstance(entry, dict):
+                continue
+            # 范围外的模型不得被记 cap：旧版本存下的（或手改的）范围外条目
+            # 在加载时就丢掉，免得 restore_model_caps() 把它们又挂成禁用。
+            if not is_free_cap_model(self.realm, mid):
+                continue
+            try:
+                at = float(entry.get("at") or 0)
+                reset = float(entry.get("reset") or 0)
+            except (TypeError, ValueError):
+                continue
+            if at > 0 and reset > 0:
+                self.model_caps[str(mid)] = {"at": at, "reset": reset}
         # Low-credit guard: once the balance reaches this level the account
         # stops being handed out, so it never drops to zero (a zero balance is
         # what makes the upstream start sending nagging SMS). Resolved from the
@@ -614,6 +653,8 @@ class Account(object):
             "lastCheckin": self.last_checkin,
             "lastDailyChat": self.last_daily_chat,
             "lastActivityReport": self.last_activity_report,
+            # 持久化：6004 的恢复时间是上游给的事实，重启后仍然成立（见 __init__）。
+            "modelCaps": {mid: dict(entry) for mid, entry in self.model_caps.items()},
         }
 
     def _throttle_snapshot(self, now):
@@ -625,7 +666,14 @@ class Account(object):
             active = [(model, until) for model, until in self.model_cooldowns.items()
                       if until > now]
         active.sort(key=lambda pair: (pair[1], pair[0]))
-        models = [{"model": model, "expiresAt": int(until)} for model, until in active]
+        models = []
+        for model, until in active:
+            entry = {"model": model, "expiresAt": int(until)}
+            # 撞线时间只在 cap 还在恢复期内时带上：它同时说明这次禁用是
+            # 「额度用满」（6004）而不是一次临时限流，面板据此显示两段时间。
+            if self.cap_until(model, now) > 0:
+                entry["cappedAt"] = int(self.model_caps[model]["at"])
+            models.append(entry)
         return error, deadline, models, detail
 
     def model_cooldowns_snapshot(self):
@@ -860,6 +908,82 @@ class Account(object):
             return False
         return self.credit_limit_reached()
 
+    def note_model_cap(self, model, reset_at, now=None):
+        """记下「这个模型的窗口额度被上游判定用满」（429 / code 6004）。
+
+        持久化：6004 带的重置时刻是上游给的事实，跨重启仍然成立——否则重启后
+        要等到下一次撞线才重新发现，而那个组合本来就在恢复时间内。返回是否新记
+        （重复撞同一个窗口不算新，避免每次都重写凭证档）。
+
+        只记免费模型（FREE_CAP_MODELS）：限额联动仅覆盖它们，范围外的模型
+        即使收到 6004 也不写 cap、不跨重启禁用，只保留调用方给的运行时冷却。
+        """
+        if not model or not reset_at:
+            return False
+        if not is_free_cap_model(self.realm, model):
+            return False
+        now = time.time() if now is None else now
+        try:
+            reset = float(reset_at)
+        except (TypeError, ValueError):
+            return False
+        with self._throttle_lock:
+            old = self.model_caps.get(model)
+            if old is not None and float(old.get("reset") or 0) == reset:
+                # 同一个窗口的重复撞线：不用重写凭证档，但冷却要重新挂上——
+                # 中间可能被换身分之类的清理顺手清掉过；挂不回来，这个窗口
+                # 就一直不会被禁用（真机实测）。
+                if self.model_cooldowns.get(model, 0.0) < reset:
+                    self.model_cooldowns[model] = reset
+                return False
+            self.model_caps[model] = {"at": now, "reset": reset}
+            # 恢复时间之前这个模型接不了单：挂上模型冷却，分派与账号行因此
+            # 立刻反映（重启后由 restore_model_caps() 重新挂）。
+            self.model_cooldowns[model] = max(self.model_cooldowns.get(model, 0.0), reset)
+        return True
+
+    def cap_until(self, model, now=None):
+        """这个模型处于「上游判定额度用满」状态的截止时刻；不在其中返回 0。"""
+        entry = self.model_caps.get(model)
+        if not isinstance(entry, dict):
+            return 0.0
+        now = time.time() if now is None else now
+        try:
+            reset = float(entry.get("reset") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        return reset if reset > now else 0.0
+
+    def capped_model_names(self, now=None):
+        """此刻仍在恢复时间内的模型（上游判定额度用满）。"""
+        now = time.time() if now is None else now
+        return sorted(mid for mid in self.model_caps
+                      if self.cap_until(mid, now) > 0)
+
+    def restore_model_caps(self, now=None):
+        """重启后把仍在恢复时间内的 6004 重新挂成模型冷却。
+
+        6004 的恢复时间跨重启有效，而模型冷却是纯内存的——不挂回来的话，重启
+        会让这些组合重新接单，直到下一次撞 429 才又停。范围检查再过一道：
+        加载端已丢弃范围外的 cap，这里兜住直接写 model_caps 的调用方。
+        """
+        now = time.time() if now is None else now
+        restored = []
+        with self._throttle_lock:
+            for mid, entry in self.model_caps.items():
+                if not is_free_cap_model(self.realm, mid):
+                    continue
+                try:
+                    reset = float(entry.get("reset") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if reset <= now:
+                    continue
+                if self.model_cooldowns.get(mid, 0.0) < reset:
+                    self.model_cooldowns[mid] = reset
+                    restored.append(mid)
+        return sorted(restored)
+
     def model_token_limit_blocked(self, model=None):
         """True when `model` already burned its daily token budget today.
 
@@ -1067,7 +1191,9 @@ class Account(object):
             return False
         self.product = new
         try:
-            self.clear_error()
+            # 清的是限流状态；上游判定额度用满的禁用（仍在恢复期内的
+            # model_caps）跨身分成立，不能被这次切换顺手清掉。
+            self.clear_error(keep_caps=True)
         except Exception:
             pass
         return True
@@ -1941,10 +2067,23 @@ self.balance_until - now, self.breaker_until - now, self.degrade_until - now)
                 wait = max(wait, max(0.0, self.model_cooldowns.get(model, 0.0) - now))
         return wait
 
-    def clear_error(self, model=None):
+    def clear_error(self, model=None, keep_caps=False):
+        """清掉限流状态；keep_caps 保留「上游判定额度用满」的禁用。
+
+        换身分/重试要清的是限流窗口，而 6004 的禁用是上游给的窗口事实（恢复
+        时刻之前这个组合就是不可用），不能顺手清掉——真机实测（2026-10-10）：
+        auto-switch 开着时它会把刚记下的 cap 冷却一起清掉，6004 之后账号立刻
+        又可用，禁用形同不存在。
+        """
         with self._throttle_lock:
             if model:
-                self.model_cooldowns.pop(model, None)
+                if not (keep_caps and self.cap_until(model) > 0):
+                    self.model_cooldowns.pop(model, None)
+            elif keep_caps:
+                now = time.time()
+                for mid in [m for m in self.model_cooldowns
+                            if self.cap_until(m, now) <= 0]:
+                    self.model_cooldowns.pop(mid, None)
             else:
                 self.model_cooldowns.clear()
             if (self.last_error or self.cooldown_until
@@ -2181,7 +2320,24 @@ class AccountPool(object):
                     self.accounts.append(account)
             self.apply_reserve_credits()
             self.apply_expiring_window()
+            # 6004 的恢复时间跨重启有效：把还在恢复时间内的组合重新挂成模型
+            # 冷却，否则重启会把它们重新放出去，直到下次撞 429 才又停。
+            self.restore_model_caps()
             return self.accounts
+
+    def restore_model_caps(self, now=None):
+        """把仍在恢复时间内的 6004 挂回每个账号的模型冷却上。"""
+        now = time.time() if now is None else now
+        restored = {}
+        with self._lock:
+            for account in self.accounts:
+                mids = account.restore_model_caps(now)
+                if mids:
+                    restored[account.uid] = mids
+        for uid, mids in sorted(restored.items()):
+            self.log("account %s: 模型 %s 仍在额度恢复期内（至上游给定时刻）"
+                     % (uid[:8], ", ".join(mids)))
+        return restored
 
     def list_public(self, realm=None):
         with self._lock:
@@ -2956,7 +3112,7 @@ EXPORT_VERSION = 1
 # exported for inspection but never trusted on import: a stale cooldown or a
 # disabled flag from another machine would silently cripple the target pool.
 VOLATILE_FIELDS = ("cooldownUntil", "lastError", "credits", "lastCheckin",
-                   "lastDailyChat", "lastActivityReport")
+                   "lastDailyChat", "lastActivityReport", "modelCaps")
 
 # The subset of VOLATILE_FIELDS that must not round-trip through the local
 # credential file at all: they are not trusted on load and not written by save(),
