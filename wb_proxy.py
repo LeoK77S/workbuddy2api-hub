@@ -6341,6 +6341,7 @@ def runtime_settings_view():
         "local_web_tools": wb_settings.local_web_tools(ACCOUNTS_DIR),
         "accounts_collapsed": wb_settings.accounts_collapsed(ACCOUNTS_DIR),
         "key_before_hidden": wb_settings.key_before_hidden(ACCOUNTS_DIR),
+        "hidden_pages": wb_settings.hidden_pages(ACCOUNTS_DIR),
         "update_check_enabled": wb_settings.update_check_enabled(ACCOUNTS_DIR),
         "upstream": wb_settings.upstream_config(ACCOUNTS_DIR),
         "prompt": wb_settings.prompt_config(ACCOUNTS_DIR),
@@ -12722,6 +12723,20 @@ class Handler(BaseHTTPRequestHandler):
                                    "invalid_request_error")
             wb_settings.set_key_before_hidden(ACCOUNTS_DIR, raw)
             reply["key_before_hidden"] = raw
+        if "hidden_pages" in payload:
+            # A list of page keys, and the only thing this branch may touch: the
+            # submission carries just this key, so the settings it does not name
+            # survive the write. A bare string would iterate character by
+            # character and hide nothing but garbage, so anything that is not a
+            # list of strings is rejected outright rather than normalised away.
+            raw = payload.get("hidden_pages")
+            if not isinstance(raw, list) or any(not isinstance(k, str) for k in raw):
+                return self._error(400, "hidden_pages must be a list of page keys",
+                                   "invalid_request_error")
+            # Reply with the normalised list, not the raw one: keys the request
+            # spelled wrong are dropped on the way in, so the panel echoes back
+            # what was actually stored.
+            reply["hidden_pages"] = wb_settings.set_hidden_pages(ACCOUNTS_DIR, raw)
         if "update_check_enabled" in payload:
             # Strictly a JSON boolean, like the switches above: "false" as a
             # string would be truthy and silently start the daily GitHub call.
