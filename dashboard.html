@@ -667,7 +667,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   };
 
   // 3. Tab 初始化（与下方主脚本的 MAIN_TABS 保持一致）
-  var TABS = ['gateway','tasks','analytics','agents','settings','logs'];
+  var TABS = ['gateway','accounts','tasks','analytics','agents','settings','logs'];
   var pick = null;
   try {
     var q = new URLSearchParams(location.search).get('tab');
@@ -837,6 +837,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '全维度统计输入/输出/推理 Token、缓存节省效益与各账号各模型用量': 'Full statistics on input/output/reasoning tokens, cache savings and per-account, per-model usage',
     '全自动批量接取、事件上报点亮并领取官方成长积分 (+1450分)，以及猫猫日常与打卡': 'Fully automatic batch claiming, event reporting and claiming of the official growth credits (+1450), plus the cat daily routine and check-in',
     '全部': 'All',
+    '全部任务': 'All tasks',
     '全部停用': 'Disable all',
     '全部历史': 'All time',
     '全部历史 (All Time)': 'All time',
@@ -849,6 +850,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '全部模型合计 (Total)': 'All models total',
     '全部模型都有价。': 'Every model has a price.',
     '全部级别': 'All levels',
+    '全部结果': 'All results',
     '全部账号': 'All accounts',
     '共': 'Total',
     '共 0 个': '0 total',
@@ -905,6 +907,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '剩余积分 ·': 'Credits left ·',
     '剩余额度最大': 'Most quota left',
     '加载中...': 'Loading...',
+    '加载更多': 'Load more',
     '勾选要导入为槽位的出口：': 'Tick the exits to import as slots:',
     '匹配来源：': 'Match source:',
     '区域': 'Region',
@@ -944,11 +947,13 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '国内版 (China)': 'China',
     '国内版 (China) · copilot.tencent.com': 'China · copilot.tencent.com',
     '国内版成长任务与日常福利': 'China growth tasks and daily perks',
+    '国内版签到': 'China check-in',
     '国家未知': 'Country unknown',
     '国际版': 'Global',
     '（国际版）': '(Global)',
     '国际版 (Global)': 'Global',
     '国际版 (Global) · www.workbuddy.ai': 'Global · www.workbuddy.ai',
+    '国际版每日活跃': 'Global daily activity',
     '国际版每日活跃打卡': 'Global daily activity check-in',
     '国际版账号每日打卡时，除桌面端身分的轻量对话外，再走一次网页通道的会话。默认开启。': 'When a Global account checks in, besides the light desktop-identity chat it also runs one web-channel session. On by default.',
     '在家待命中': 'At home, idle',
@@ -975,6 +980,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '定价刷新': 'Price refresh',
     '定价策略': 'Pricing policy',
     '定价策略：': 'Pricing policy:',
+    '定时': 'Scheduler',
     '实时捕获反向代理请求、流式转发、调度巡检、任务打卡与异常告警 (内存保留最新 2000 条)': 'Live capture of reverse-proxy requests, streaming forwards, scheduler checks, task check-ins and alerts (the latest 2000 are kept in memory)',
     '实时监听中': 'Live',
     '客户端取消': 'Cancelled by client',
@@ -1042,6 +1048,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '已开始抓取': 'Fetch started',
     '已成功删除账号': 'Account deleted',
     '已成功刷新当前': 'Refreshed the current',
+    '已显示最新': 'Showing the newest',
     '已暂停': 'Paused',
     '已暂停监听': 'Paused',
     '已有包过期': 'Some packages have expired',
@@ -1071,6 +1078,23 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '当前版本': 'Current version',
     '当前版本暂无模型请求或性能数据': 'No model requests or performance data for the current version yet',
     '当前禁用': 'Currently disabled',
+    '成功': 'Succeeded',
+    '手动': 'Manual',
+    '时间区间': 'Time range',
+    '来源': 'Trigger',
+    '添加账号': 'Account added',
+    '签到与活跃记录': 'Check-in & activity log',
+    '签到记录已刷新': 'Activity log refreshed',
+    '网关': 'Gateway',
+    '网关与账号': 'Gateway & accounts',
+    '管理账号池与代理出口，查看当日调用量、估算花费、成功率、最近请求与网关模型清单。': 'Manage the account pool and proxy exits; review call volume, estimated cost, success rate, recent requests and the gateway model list.',
+    '账号独立成一个页签': 'Accounts as a separate tab',
+    '账号单独一页': 'Accounts on their own page',
+    '(已开启)': '(on)',
+    '(默认)': '(default)',
+    '已开启：账号独立成一个页签': 'On: accounts get their own tab',
+    '已关闭：账号与网关回到同一页': 'Off: accounts are back on the gateway page',
+    '关闭（默认）时，账号列表、「当前禁用」与「签到与活跃记录」留在「网关与账号」页，位置与拆分前一致；开启后它们搬到独立的「账号」页，顶部页签变成 网关 → 账号 → 数据看板 → 智能体配置 → 设置 → 运行日志，网关页只剩网关自己的东西——账号多起来（国际版十几个）之后翻起来更短。两侧的区块与行为完全一样，只是分在哪一页；关闭后 ?tab=accounts 的书签会退回「网关与账号」页。': 'Off (the default) keeps the account list, "currently disabled" and the check-in & activity log on the "Gateway & accounts" page, where they were before the split; on moves them to an "Accounts" page of their own and the top tabs become Gateway -> Accounts -> Analytics -> Agents -> Settings -> Logs, leaving the gateway page with only gateway content - shorter to page through once you run a dozen Global accounts. The sections and their behaviour are the same either way, only the page they live on differs; with it off a ?tab=accounts bookmark falls back to the "Gateway & accounts" page.',
     '网关模型清单': 'Gateway model catalog',
     '当前生效': 'In effect',
     '当前系统（': 'Current OS (',
@@ -1250,6 +1274,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '每日活跃打卡 (国际版)': 'Daily activity check-in (Global)',
     '每日积分限额': 'Daily credit limit',
     '临期积分优先': 'Expiring credits first',
+    '读取签到记录失败:': 'Failed to read the activity log:',
     '账号「最早到期的积分包」（还有剩余、且到期会真正作废的那些）距今不超过该天数时，分派优先使用临期积分的账号——分到的流量更多、越接近到期份额越大，但不会全压在一个账号上（到期日相同或相近的账号彼此等权）；这些账号暂时都不可用（冷却、达日限额等）时，其他账号照常顶上。填 0 表示关闭；天数取自各账号最近一次刷新的积分数据。': 'When the soonest-expiring credit package of an account (one that still has credits and would really lapse) is within this many days, dispatch prefers the accounts with expiring credits - they get a larger share, and the closer to expiry the bigger - but never all of it in one account (accounts expiring on or around the same day carry equal weight); when none of them is usable (cooling down, over a daily limit), the other accounts serve as usual. 0 turns it off; the day counts come from the most recent credit refresh of each account.',
     '启用临期优先': 'Enable expiring-credits first',
     '已开启临期积分优先': 'Expiring-credits priority on',
@@ -1383,8 +1408,8 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '缓存命中率': 'Cache hit rate',
     '编辑': 'Edit',
     '编辑 API Key': 'Edit API key',
-    '网关与账号': 'Gateway & accounts',
-    '管理账号池与代理出口，查看当日调用量、估算花费、成功率、最近请求与网关模型清单。': 'Manage the account pool and proxy exits; review call volume, estimated cost, success rate, recent requests and the gateway model list.',
+    '管理代理出口与网关模型，查看当日调用量、估算花费、成功率与最近请求。': 'Manage proxy exits and the gateway model list; review call volume, estimated cost, success rate and recent requests.',
+    '管理账号池：添加/导入/导出、启用停用、凭证与积分刷新、代理出口绑定，以及签到与每日活跃记录。': 'Manage the account pool: add/import/export, enable/disable, credential and credit refresh, exit binding, plus check-in and daily activity records.',
     '网关实时目录里新增的模型，上游新上架的名字无需改代码就会进入下一轮取价；两次取价之间就被调用的新模型，第一笔请求即按内存里的目录': 'models newly added to the live catalog of the gateway; names upstream has just listed enter the next price fetch with no code change, and a new model called between two fetches is',
     '网关平均生成速度': 'Gateway average generation speed',
     '网关日志已清空': 'Gateway logs cleared',
@@ -1438,6 +1463,11 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '设置': 'Settings',
     '智能体配置': 'Agent Setup',
     '一键配置': 'One-click Setup',
+    '近 1 天': 'Last 1 day',
+    '近 30 天': 'Last 30 days',
+    '近 7 天': 'Last 7 days',
+    '近 90 天': 'Last 90 days',
+    '这个区间里没有签到或活跃记录。': 'No check-in or activity records in this range.',
     '重新应用': 'Re-apply',
     '还原原始配置': 'Restore Original Config',
     '连接信息': 'Connection Info',
@@ -1995,6 +2025,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     "缓存": "快取",
     "缓存命中": "快取命中",
     "缓存命中率": "快取命中率",
+    "管理账号池与代理出口，查看当日调用量、估算花费、成功率、最近请求与网关模型清单。": "管理帳號池與代理出口，查看當日呼叫量、估算花費、成功率、最近請求與閘道模型清單。",
     "网关与运维": "閘道與運維",
     "网关实时目录里新增的模型，上游新上架的名字无需改代码就会进入下一轮取价；两次取价之间就被调用的新模型，第一笔请求即按内存里的目录": "閘道實時目錄裡新增的模型，上游新上架的名字無需改程式碼就會進入下一輪取價；兩次取價之間就被呼叫的新模型，第一筆請求即按記憶體裡的目錄",
     "网关平均生成速度": "閘道平均生成速度",
@@ -2238,7 +2269,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     "稳": "穩",
     "笔": "筆",
     "筛": "篩",
-    "签": "籤",
+    "签": "簽",
     "类": "類",
     "级": "級",
     "纳": "納",
@@ -2616,7 +2647,10 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     <h1><span class="dot" id="statusDot"></span>WorkBuddy 网关</h1>
     <nav class="main-nav">
       <button class="main-nav-btn active" id="btnNavGateway" onclick="switchMainTab('gateway')">
-        网关与账号
+        <span id="navGatewayLabel">网关</span>
+      </button>
+      <button class="main-nav-btn" id="btnNavAccounts" onclick="switchMainTab('accounts')">
+        账号
       </button>
       <button class="main-nav-btn" id="btnNavTasks" onclick="switchMainTab('tasks')">
         任务与福利
@@ -2698,10 +2732,10 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 </div>
 <main>
   <div id="pageGateway" class="main-page">
-  <!-- 页面头部：标题 + 一行说明，与另外四个页面的头部结构保持一致 -->
+  <!-- 页面头部：标题 + 一行说明，与其它页面的头部结构保持一致 -->
   <div style="margin-bottom:16px">
-    <h2 style="margin:0;font-size:16px;color:var(--fg)">网关与账号</h2>
-    <div style="font-size:12px;color:var(--dim);margin-top:4px">管理账号池与代理出口，查看当日调用量、估算花费、成功率、最近请求与网关模型清单。</div>
+    <h2 id="gatewayPageTitle" style="margin:0;font-size:16px;color:var(--fg)">网关与账号</h2>
+    <div id="gatewayPageDesc" style="font-size:12px;color:var(--dim);margin-top:4px">管理账号池与代理出口，查看当日调用量、估算花费、成功率、最近请求与网关模型清单。</div>
   </div>
   <!-- 版本中枢控制栏 (三列等高对齐网格) -->
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:18px">
@@ -2777,55 +2811,9 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
 
   <div class="cards" id="cards"></div>
 
-  <section>
-    <h2>
-      <!-- 折叠开关：真按钮，所以键盘可达；aria-expanded、chevron
-           方向与正文可见性三者永远同步。标题与计数留在正文之外，收起时仍可见。 -->
-      <button type="button" class="disclosure" id="accountsToggle" aria-expanded="true"
-              aria-controls="accountsBody" onclick="toggleAccountsSection(event)"
-              title="折叠 / 展开账号区"><span class="disclosure-chevron" aria-hidden="true"></span>账号列表</button><em id="acctCount"></em>
-    </h2>
-    <div id="accountsBody" class="collapse">
-      <div class="collapse-inner">
-    <div class="toolbar">
-    <button onclick="openLoginModal()">添加</button>
-    <!-- 桌面客户端自 2026-09-24 起把 token 改成加密存储（$wbEncrypted 信封）。
-         网关现在会从正在运行的桌面端进程内存里回收静态密钥来解密（只读、密钥
-         只留在内存里，实现见 wb_atrest.py），所以这个入口重新放出来。 -->
-    <button class="sec" id="btnScanDesktop" onclick="scanDesktop(this)">扫描桌面客户端</button>
-    <button class="sec" onclick="openImport()">导入</button>
-    <button class="sec" onclick="exportAccounts(this)">导出</button>
-    <span class="toolbar-sep" aria-hidden="true"></span>
-    <button class="sec" onclick="fetchCredits(this)">一键刷新积分</button>
-    <button class="sec" onclick="refreshAccounts(this)" title="逐个刷新所有账号的上游访问凭证（相当于对每个账号点一次「刷新凭证」）">一键刷新凭证</button>
-    <span class="toolbar-sep" aria-hidden="true"></span>
-    <button class="sec" id="btnCheckin" onclick="doCheckin(this)" style="display:none">Buddy 加油站签到</button>
-    <button class="sec" id="btnDailyChat" onclick="doDailyChat(this)" style="display:none">每日活跃打卡 (国际版)</button>
-    <!-- 网页通道打卡按钮不再上屏（2026-10-10 起）：网页通道那一步已经由设置里的
-         「国际版每日活跃打卡」自动带在「每日活跃打卡」里，手动补跑走
-         /accounts/daily-chat-web 即可。要放回面板：去掉下面的 display:none，
-         并在 updateUI() 里恢复它按视图显隐。 -->
-    <button class="sec" id="btnDailyChatWeb" onclick="doDailyChatWeb(this)" style="display:none">网页通道打卡 (国际版)</button>
-    <span class="toolbar-sep" aria-hidden="true"></span>
-    <button class="sec" onclick="autoAssignSlots()" title="把尚未绑定出口的已启用账号依次分配到已启用的代理槽；已有绑定的账号不受影响">一键分配代理</button>
-    <button class="sec" onclick="setAll(true, this)">全部启用</button>
-    <button class="sec" onclick="setAll(false, this)">全部停用</button>
-    
-  </div>
-    <div id="accounts"></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 当前禁用总览：把散落在账号卡片上的停用/限流状态汇总成一张表。
-       数据全部取自 /accounts（window.ACCOUNTS），不额外发请求。 -->
-  <section>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
-      <h2 style="margin:0">当前禁用<em id="disabledRealmTag" style="color:var(--dim);font-weight:500"></em><em id="disabledCount"></em></h2>
-      <div class="legend" style="margin:0"><span>「上游限流」到点自动恢复；「本地停用」需手动启用；「日限额」次日零点恢复</span></div>
-    </div>
-    <div id="disabledList"></div>
-  </section>
+  <!-- 合并模式（设置里「账号独立成一个页签」关闭，默认）时，账号页的三个区块搬到
+       这里，位置与拆分前一致：控制栏之后、最近请求之前。拆分模式下这里是空的。 -->
+  <span id="accountsSectionsAnchor" hidden></span>
 
   <!-- 融合后的：模型性能与用量矩阵 -->
   
@@ -2878,6 +2866,103 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   </section>
 
   </div><!-- /pageGateway -->
+  
+  <div id="pageAccounts" class="main-page">
+  <!-- 页面头部：标题 + 一行说明，与其它页面的头部结构保持一致 -->
+  <div style="margin-bottom:16px">
+    <h2 style="margin:0;font-size:16px;color:var(--fg)">账号</h2>
+    <div style="font-size:12px;color:var(--dim);margin-top:4px">管理账号池：添加/导入/导出、启用停用、凭证与积分刷新、代理出口绑定，以及签到与每日活跃记录。</div>
+  </div>
+  <!-- 拆分模式下三个区块的落点（页头之后、原顺序）；合并模式搬走之后这里就空着 -->
+  <span id="accountsHomeAnchor" hidden></span>
+  <section>
+    <h2>
+      <!-- 折叠开关：真按钮，所以键盘可达；aria-expanded、chevron
+           方向与正文可见性三者永远同步。标题与计数留在正文之外，收起时仍可见。 -->
+      <button type="button" class="disclosure" id="accountsToggle" aria-expanded="true"
+              aria-controls="accountsBody" onclick="toggleAccountsSection(event)"
+              title="折叠 / 展开账号区"><span class="disclosure-chevron" aria-hidden="true"></span>账号列表</button><em id="acctCount"></em>
+    </h2>
+    <div id="accountsBody" class="collapse">
+      <div class="collapse-inner">
+    <div class="toolbar">
+    <button onclick="openLoginModal()">添加</button>
+    <!-- 桌面客户端自 2026-09-24 起把 token 改成加密存储（$wbEncrypted 信封）。
+         网关现在会从正在运行的桌面端进程内存里回收静态密钥来解密（只读、密钥
+         只留在内存里，实现见 wb_atrest.py），所以这个入口重新放出来。 -->
+    <button class="sec" id="btnScanDesktop" onclick="scanDesktop(this)">扫描桌面客户端</button>
+    <button class="sec" onclick="openImport()">导入</button>
+    <button class="sec" onclick="exportAccounts(this)">导出</button>
+    <span class="toolbar-sep" aria-hidden="true"></span>
+    <button class="sec" onclick="fetchCredits(this)">一键刷新积分</button>
+    <button class="sec" onclick="refreshAccounts(this)" title="逐个刷新所有账号的上游访问凭证（相当于对每个账号点一次「刷新凭证」）">一键刷新凭证</button>
+    <span class="toolbar-sep" aria-hidden="true"></span>
+    <button class="sec" id="btnCheckin" onclick="doCheckin(this)" style="display:none">Buddy 加油站签到</button>
+    <button class="sec" id="btnDailyChat" onclick="doDailyChat(this)" style="display:none">每日活跃打卡 (国际版)</button>
+    <!-- 网页通道打卡按钮不再上屏（2026-10-10 起）：网页通道那一步已经由设置里的
+         「国际版每日活跃打卡」自动带在「每日活跃打卡」里，手动补跑走
+         /accounts/daily-chat-web 即可。要放回面板：去掉下面的 display:none，
+         并在 updateUI() 里恢复它按视图显隐。 -->
+    <button class="sec" id="btnDailyChatWeb" onclick="doDailyChatWeb(this)" style="display:none">网页通道打卡 (国际版)</button>
+    <span class="toolbar-sep" aria-hidden="true"></span>
+    <button class="sec" onclick="autoAssignSlots()" title="把尚未绑定出口的已启用账号依次分配到已启用的代理槽；已有绑定的账号不受影响">一键分配代理</button>
+    <button class="sec" onclick="setAll(true, this)">全部启用</button>
+    <button class="sec" onclick="setAll(false, this)">全部停用</button>
+    
+  </div>
+    <div id="accounts"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 当前禁用总览：把散落在账号卡片上的停用/限流状态汇总成一张表。
+       数据全部取自 /accounts（window.ACCOUNTS），不额外发请求。 -->
+  <section>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <h2 style="margin:0">当前禁用<em id="disabledRealmTag" style="color:var(--dim);font-weight:500"></em><em id="disabledCount"></em></h2>
+      <div class="legend" style="margin:0"><span>「上游限流」到点自动恢复；「本地停用」需手动启用；「日限额」次日零点恢复</span></div>
+    </div>
+    <div id="disabledList"></div>
+  </section>
+
+  <!-- 签到与活跃记录：读 wb_activity.py 落下的结构化历史（GET /activity/history），
+       一行一次真实尝试。筛选全部由服务端做（range/task/result/uid/limit），前端
+       只拼查询串与渲染，免得两处各写一份筛选规则再慢慢跑偏。 -->
+  <section>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <h2 style="margin:0">签到与活跃记录 <em id="activityCount"></em></h2>
+      <div style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <select id="activityRange" class="slot-select" onchange="loadActivityHistory()" aria-label="时间区间">
+          <option value="today">今日</option>
+          <option value="1d">近 1 天</option>
+          <option value="7d" selected>近 7 天</option>
+          <option value="30d">近 30 天</option>
+          <option value="90d">近 90 天</option>
+          <option value="all">全部</option>
+        </select>
+        <select id="activityTask" class="slot-select" onchange="loadActivityHistory()" aria-label="任务">
+          <option value="">全部任务</option>
+          <option value="checkin">国内版签到</option>
+          <option value="daily_chat">国际版每日活跃</option>
+        </select>
+        <select id="activityResult" class="slot-select" onchange="loadActivityHistory()" aria-label="结果">
+          <option value="">全部结果</option>
+          <option value="ok">成功</option>
+          <option value="failed">失败</option>
+        </select>
+        <select id="activityAccount" class="slot-select" onchange="loadActivityHistory()" aria-label="账号">
+          <option value="">全部账号</option>
+        </select>
+        <button class="sec mini" id="btnActivityRefresh" onclick="loadActivityHistory(true)">刷新</button>
+      </div>
+    </div>
+    <div id="activityList" class="table-wrap"></div>
+    <div id="activityMore" style="display:none;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:12px;color:var(--dim);align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <span id="activityMoreInfo"></span>
+      <button class="sec mini" id="btnActivityMore" onclick="loadActivityHistory(false, true)">加载更多</button>
+    </div>
+  </section>
+  </div><!-- /pageAccounts -->
   
   <div id="pageTasks" class="main-page">
   <!-- 国际版每日活跃福利 -->
@@ -2971,6 +3056,10 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   </section>
   </div><!-- /pageTasks -->
 
+  
+  <!-- 账号页（issue #176）：账号多起来之后，网关页的卡片与最近请求被一长串账号
+       挤到下面，所以账号列表与「当前禁用总览」单独成一个菜单，签到/活跃记录也
+       放在这里——它回答的正是「这个账号昨天到底签成了没有」。 -->
   <div id="pageAnalytics" class="main-page">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:12px">
       <div>
@@ -3246,6 +3335,24 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
         </div>
         <button onclick="saveUiLanguage(this)">保存默认语言</button>
         <button class="sec" onclick="clearUiLanguageOverride(this)">清除本浏览器的语言覆盖</button>
+      </div>
+    </section>
+
+    <section>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+        <div>
+          <h2 style="margin:0">账号独立成一个页签 <em id="setAccountsSeparateState"></em></h2>
+          <div style="font-size:12px;color:var(--dim);margin-top:4px">
+            关闭（默认）时，账号列表、「当前禁用」与「签到与活跃记录」留在「网关与账号」页，位置与拆分前一致；开启后它们搬到独立的「账号」页，顶部页签变成 网关 → 账号 → 数据看板 → 智能体配置 → 设置 → 运行日志，网关页只剩网关自己的东西——账号多起来（国际版十几个）之后翻起来更短。两侧的区块与行为完全一样，只是分在哪一页；关闭后 ?tab=accounts 的书签会退回「网关与账号」页。
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:40px">
+            <input id="setAccountsSeparate" type="checkbox" style="width:16px;height:16px">
+            账号单独一页
+          </label>
+          <button onclick="saveAccountsSeparateTab(this)">保存</button>
+        </div>
       </div>
     </section>
 
@@ -5243,6 +5350,139 @@ function renderDisabled(){
     + '</tbody></table></div>';
 }
 
+/* ---- 签到与活跃记录（GET /activity/history，issue #176）----
+   国内版签到与国际版每日活跃的每一次真实尝试，都由 wb_activity.py 落成一行：
+   时间 / uid / 昵称 / 区域 / 任务 / 触发来源 / 结果 / 说明。筛选全部交给服务端
+   （range/task/result/uid/limit），它还会校验认不出来的值并回 400——前端不再
+   自己过滤一遍，两处各写一份筛选规则迟早会跑偏。
+   这份历史是按需读的日志视图，不跟着 15 秒轮询走：轮询会每轮把「加载更多」翻
+   出来的页码重置回第一页，操作者正看着的记录会跳走。 */
+const ACTIVITY_PAGE = 100;
+const ACTIVITY_MAX_LIMIT = 1000;
+let ACTIVITY_LIMIT = ACTIVITY_PAGE;
+let ACTIVITY_LOADING = false;
+
+const ACTIVITY_TASK_LABEL = {checkin: '国内版签到', daily_chat: '国际版每日活跃'};
+const ACTIVITY_TRIGGER_LABEL = {scheduler: '定时', manual: '手动', account_add: '添加账号',
+                                account_import: '导入', unknown: '未知'};
+const ACTIVITY_REALM_LABEL = {cn: '国内版', intl: '国际版'};
+
+function activityValue(id){
+  const el = document.getElementById(id);
+  return el ? String(el.value == null ? '' : el.value) : '';
+}
+
+function activityQuery(limit){
+  const q = new URLSearchParams();
+  q.set('range', activityValue('activityRange') || '7d');
+  const task = activityValue('activityTask');
+  if(task) q.set('task', task);
+  const result = activityValue('activityResult');
+  if(result) q.set('result', result);
+  const uid = activityValue('activityAccount');
+  if(uid) q.set('uid', uid);
+  q.set('limit', String(limit));
+  return '/activity/history?' + q.toString();
+}
+
+/* 账号下拉的选项取自当前账号池（/accounts）。账号轮询每 15 秒刷一次窗口，这里
+   每次重建选项都要把操作者已选中的 uid 放回去，否则筛选条件会被悄悄清掉。 */
+function renderActivityAccounts(){
+  const sel = document.getElementById('activityAccount');
+  if(!sel) return;
+  const keep = String(sel.value || '');
+  const opts = ['<option value="">全部账号</option>'];
+  (window.ACCOUNTS || []).forEach(a => {
+    if(!a || !a.uid) return;
+    const name = a.nickname || String(a.uid).slice(0, 8);
+    // 昵称是数据不是界面文案，别让 i18n 按汉字逐字转换它。
+    opts.push('<option value="' + esc(a.uid) + '" data-no-i18n>' + esc(name) + '</option>');
+  });
+  sel.innerHTML = opts.join('');
+  if(keep) sel.value = keep;
+}
+
+/* 时间按记录里写的墙上时间显示（服务端落盘时带本机偏移量），所以这里只做字符串
+   截取，不做时区换算：换算一次就等于把运维看到的本地时间再挪一遍。 */
+function activityTime(ts){
+  const m = String(ts || '').match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if(!m) return String(ts || '') || '—';
+  return m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5];
+}
+
+function activityWho(r){
+  const nick = String((r && r.nickname) || '').trim();
+  if(nick) return nick;
+  return (r && r.uid) ? String(r.uid).slice(0, 8) : '—';
+}
+
+function renderActivityHistory(data){
+  const box = document.getElementById('activityList');
+  if(!box) return;
+  const rows = (data && data.rows) || [];
+  const total = Number((data && data.total) || 0);
+  const count = document.getElementById('activityCount');
+  if(count) count.textContent = total ? '(共 ' + total + ' 条)' : '';
+  const more = document.getElementById('activityMore');
+  const info = document.getElementById('activityMoreInfo');
+  if(more) more.style.display = (rows.length < total) ? 'flex' : 'none';
+  if(info) info.textContent = (rows.length < total)
+    ? ('已显示最新 ' + rows.length + ' 条 / 共 ' + total + ' 条') : '';
+  if(!rows.length){
+    box.innerHTML = '<div class="legend" style="margin:0"><span>这个区间里没有签到或活跃记录。</span></div>';
+    return;
+  }
+  const resultBadge = ok => ok ? '<span class="badge ok">成功</span>'
+                               : '<span class="badge bad">失败</span>';
+  box.innerHTML = '<table class="data-cards"><thead><tr>'
+    + '<th style="text-align:left;width:132px">时间</th>'
+    + '<th style="text-align:left">账号</th>'
+    + '<th style="text-align:center;width:76px">区域</th>'
+    + '<th style="text-align:left;width:132px">任务</th>'
+    + '<th style="text-align:center;width:76px">来源</th>'
+    + '<th style="text-align:center;width:76px">结果</th>'
+    + '<th style="text-align:left">说明</th>'
+    + '</tr></thead><tbody>'
+    + rows.map(r => '<tr>'
+        + '<td class="mono" data-label="时间">' + esc(activityTime(r.ts)) + '</td>'
+        + '<td data-label="账号" title="' + esc(r.uid || '') + '">'
+          + '<span data-no-i18n>' + esc(activityWho(r)) + '</span></td>'
+        + '<td style="text-align:center" data-label="区域">'
+          + esc(ACTIVITY_REALM_LABEL[r.realm] || '—') + '</td>'
+        + '<td data-label="任务">' + esc(ACTIVITY_TASK_LABEL[r.task] || r.task || '—') + '</td>'
+        + '<td style="text-align:center" data-label="来源">'
+          + esc(ACTIVITY_TRIGGER_LABEL[r.trigger] || r.trigger || '—') + '</td>'
+        + '<td style="text-align:center" data-label="结果">' + resultBadge(r.ok) + '</td>'
+        + '<td data-label="说明">' + (r.message ? esc(r.message)
+                                                 : '<span style="color:var(--dim)">—</span>') + '</td>'
+        + '</tr>').join('')
+    + '</tbody></table>';
+}
+
+async function loadActivityHistory(showToast, more){
+  if(ACTIVITY_LOADING) return;
+  ACTIVITY_LOADING = true;
+  const btn = document.getElementById('btnActivityRefresh');
+  if(btn) btn.disabled = true;
+  const box = document.getElementById('activityList');
+  if(more) ACTIVITY_LIMIT = Math.min(ACTIVITY_MAX_LIMIT, ACTIVITY_LIMIT + ACTIVITY_PAGE);
+  else ACTIVITY_LIMIT = ACTIVITY_PAGE;
+  if(box && !more) box.innerHTML = '<div class="legend" style="margin:0"><span>加载中…</span></div>';
+  try {
+    renderActivityAccounts();
+    const data = await getJSON(activityQuery(ACTIVITY_LIMIT));
+    renderActivityHistory(data);
+    if(showToast) toast('签到记录已刷新', 'ok');
+  } catch(e) {
+    if(box) box.innerHTML = '<div class="legend" style="margin:0"><span>读取签到记录失败: '
+      + esc(e && e.message ? e.message : e) + '</span></div>';
+    if(showToast) toast('读取签到记录失败: ' + (e && e.message ? e.message : e), 'bad');
+  } finally {
+    ACTIVITY_LOADING = false;
+    if(btn) btn.disabled = false;
+  }
+}
+
 function renderAccounts(){
   // Same data source as the account cards, so the two views can never disagree.
   renderDisabled();
@@ -6508,7 +6748,7 @@ function generatePageList(current, total){
 
 // Tab ids in nav order. One list so the restore path and the nav cannot
 // drift apart.
-const MAIN_TABS = ['gateway', 'tasks', 'analytics', 'agents', 'settings', 'logs'];
+const MAIN_TABS = ['gateway', 'accounts', 'tasks', 'analytics', 'agents', 'settings', 'logs'];
 const MAIN_TAB_STORE = 'wb-proxy-main-tab';
 let currentMainTab = 'gateway';
 let analyticsRange = 'today';
@@ -7014,6 +7254,104 @@ async function toggleAccountsSection(evt){
 }
 // ==== 账号区折叠结束 ====
 
+// ==== 账号页签模式开始 ====
+// 「账号」是独立成一个主菜单，还是留在「网关与账号」页，由服务端设置
+// accounts_separate_tab 决定（默认关闭 = 合并，与拆分前一致）。
+//
+// 三个账号区块始终是同一批 DOM 节点，只是挂在不同页下面：合并时挂到
+// #pageGateway 的锚点处（控制栏之后、最近请求之前，也就是拆分前的位置），
+// 拆分时挂回 #pageAccounts 的页头之后。挂在谁下面就归谁的侧栏——区块侧栏是
+// initPageNav() 现场扫描本页区块生成的，所以搬完不用另外维护导航。
+let _accountsSeparateTab = false;
+let _accountsSections = null;
+
+function accountsPageSections(){
+  // 区块可能已经被 initPageNav() 包进 .page-nav-body（页面内容整体包一层，
+  // grid 里才只剩「侧栏 + 内容」两项），所以页面 div 与那层包裹都要找一遍。
+  // 只在拿到非空结果时才记住：搬走之后账号页里就只剩页头了，那时再找也找不回来。
+  if(_accountsSections && _accountsSections.length) return _accountsSections;
+  const page = document.getElementById('pageAccounts');
+  if(!page) return [];
+  const scopes = [page];
+  Array.from(page.children).forEach(el => {
+    if(el.classList && el.classList.contains('page-nav-body')) scopes.push(el);
+  });
+  const found = [];
+  scopes.forEach(scope => Array.from(scope.children).forEach(el => {
+    if(el.tagName === 'SECTION' && found.indexOf(el) === -1) found.push(el);
+  }));
+  if(found.length) _accountsSections = found;
+  return found;
+}
+
+function accountsSeparateTab(){
+  return _accountsSeparateTab;
+}
+
+// 插到锚点前面——插在锚点**所在的那个容器**里，而不是插到页面 div 上：
+// 锚点被 .page-nav-body 包起来之后就不再是页面 div 的直接子节点了，直接对页面
+// div 调 insertBefore 会抛 NotFoundError（而 loadSettings 的 try/catch 会把它
+// 吞掉，表现成「开关没反应」这种最难查的样子）。
+function insertBeforeAnchor(sections, anchor){
+  const host = anchor && anchor.parentNode;
+  if(!host || !sections.length) return false;
+  sections.forEach(s => host.insertBefore(s, anchor));
+  return true;
+}
+
+function applyAccountsTabLayout(separate){
+  _accountsSeparateTab = (separate === true);
+  const pageGateway = document.getElementById('pageGateway');
+  const pageAccounts = document.getElementById('pageAccounts');
+  if(!pageGateway || !pageAccounts) return _accountsSeparateTab;
+
+  const sections = accountsPageSections();
+  if(_accountsSeparateTab){
+    // 两个页签：区块回账号页的页头之后，按原顺序。
+    insertBeforeAnchor(sections, document.getElementById('accountsHomeAnchor'));
+  } else {
+    // 一个页签：区块挂到网关页的锚点处，位置与拆分前一致。
+    insertBeforeAnchor(sections, document.getElementById('accountsSectionsAnchor'));
+  }
+
+  const btnAccounts = document.getElementById('btnNavAccounts');
+  if(btnAccounts) btnAccounts.style.display = _accountsSeparateTab ? '' : 'none';
+  // 名字跟着走：账号已经不在这一页了，就不能再叫「网关与账号」。
+  const gatewayLabel = document.getElementById('navGatewayLabel');
+  if(gatewayLabel) gatewayLabel.textContent = _accountsSeparateTab ? '网关' : '网关与账号';
+  // 页头（标题 + 一行说明）跟着走：账号在不在这一页，名字与说明都得对得上。
+  const pageTitle = document.getElementById('gatewayPageTitle');
+  if(pageTitle) pageTitle.textContent = _accountsSeparateTab ? '网关' : '网关与账号';
+  const pageDesc = document.getElementById('gatewayPageDesc');
+  if(pageDesc){
+    pageDesc.textContent = _accountsSeparateTab
+      ? '管理代理出口与网关模型，查看当日调用量、估算花费、成功率与最近请求。'
+      : '管理账号池与代理出口，查看当日调用量、估算花费、成功率、最近请求与网关模型清单。';
+  }
+  return _accountsSeparateTab;
+}
+
+// 显式选择走既有的 settings save 通道（一个键的 patch，不动别的设置）。
+async function saveAccountsSeparateTab(btn){
+  const el = document.getElementById('setAccountsSeparate');
+  const value = !!(el && el.checked);
+  if(btn) btn.disabled = true;
+  try {
+    await postJSON('/settings/save', {accounts_separate_tab: value});
+    applyAccountsTabLayout(value);
+    // 布局换了，导航、侧栏与当前页都要按新布局重算一遍；正停在「账号」页而
+    // 刚关掉开关时，switchMainTab 会把这一页退回「网关与账号」。
+    switchMainTab(currentMainTab);
+    toast(value ? '已开启：账号独立成一个页签' : '已关闭：账号与网关回到同一页');
+    loadSettings();
+  } catch(e) {
+    toast('保存失败: ' + e.message, 'bad');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+// ==== 账号页签模式结束 ====
+
 async function loadSettings(showToast){
   try {
     const data = await getJSON('/settings');
@@ -7036,6 +7374,14 @@ async function loadSettings(showToast){
     applyAccountsCollapsed(data.accounts_collapsed === true);
     // 「(切换前)」行开关同理：只有明确存过 true 才收起，其余都照常显示。
     applyKeyBeforeHidden(data.key_before_hidden === true);
+    // 账号页签模式：同样只有明确存过 true 才拆开，其余（没存过、存坏了、
+    // 后端没这个字段）都保持上游那个合并的「网关与账号」页。
+    const separateTab = data.accounts_separate_tab === true;
+    applyAccountsTabLayout(separateTab);
+    const separateState = document.getElementById('setAccountsSeparateState');
+    if(separateState) separateState.textContent = separateTab ? '(已开启)' : '(默认：合并)';
+    const separateInput = document.getElementById('setAccountsSeparate');
+    if(separateInput) separateInput.checked = separateTab;
 
       const creditsHoursInput = document.getElementById('setCreditsRefreshHours');
       if(creditsHoursInput && data.credits_refresh_hours !== undefined){
@@ -8270,6 +8616,9 @@ async function loadAgentsAvailability(){
 function switchMainTab(tab){
   // 入口被撤掉后（?tab=agents 的书签、上次停留的页签）退回网关页
   if(tab === 'agents' && !AGENTS_AVAILABLE) tab = 'gateway';
+  // 账号页被合并掉之后（设置里的「账号独立成一个页签」关闭，默认），
+  // ?tab=accounts 的书签与上次停留的页签都退回「网关与账号」页——区块就在那一页里。
+  if(tab === 'accounts' && !_accountsSeparateTab) tab = 'gateway';
   currentMainTab = tab;
   // Remember the page across reloads. The URL is updated so the address bar
   // matches what is on screen and a copied link reopens the same page;
@@ -8283,18 +8632,21 @@ function switchMainTab(tab){
   try { localStorage.setItem(MAIN_TAB_STORE, tab); } catch(e){}
   const btnGateway = document.getElementById('btnNavGateway');
   const btnTasks = document.getElementById('btnNavTasks');
+  const btnAccounts = document.getElementById('btnNavAccounts');
   const btnAnalytics = document.getElementById('btnNavAnalytics');
   const btnLogs = document.getElementById('btnNavLogs');
   const btnSettings = document.getElementById('btnNavSettings');
   const btnAgents = document.getElementById('btnNavAgents');
   const pageGateway = document.getElementById('pageGateway');
   const pageTasks = document.getElementById('pageTasks');
+  const pageAccounts = document.getElementById('pageAccounts');
   const pageAnalytics = document.getElementById('pageAnalytics');
   const pageLogs = document.getElementById('pageLogs');
   const pageSettings = document.getElementById('pageSettings');
   const pageAgents = document.getElementById('pageAgents');
   const tabs = [
     ['gateway', btnGateway, pageGateway],
+    ['accounts', btnAccounts, pageAccounts],
     ['tasks', btnTasks, pageTasks],
     ['analytics', btnAnalytics, pageAnalytics],
     ['logs', btnLogs, pageLogs],
@@ -8310,6 +8662,7 @@ function switchMainTab(tab){
     if(on) initPageNav(page);
   });
   if(tab === 'tasks'){ loadGrowthTasks(); }
+  if(tab === 'accounts' || (!_accountsSeparateTab && tab === 'gateway')){ loadActivityHistory(); }
   if(tab === 'analytics'){ loadAnalytics(); loadAnalyticsMatrix(); }
   if(tab === 'settings'){ loadSettings(); loadProxySlots(); }
   if(tab === 'agents'){ loadAgents(); }

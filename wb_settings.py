@@ -57,6 +57,13 @@ ACCOUNTS_COLLAPSED_KEY = "accounts_collapsed"
 # normalisation as the disclosure above: only an explicit boolean true hides
 # the row, so a hand edit or an older client cannot drop it by accident.
 KEY_BEFORE_HIDDEN_KEY = "key_before_hidden"
+# Whether the panel's account sections get a main tab of their own instead of
+# sharing the gateway page. Missing, or anything that is not the boolean true,
+# reads as off: an install that predates the setting keeps the single
+# "网关与账号" tab it has always had, and only an explicit true splits it into
+# 网关 + 账号. Same `is True` normalisation as the two switches above, so a
+# hand-edited "false", a 1 or an object cannot split the nav by accident.
+ACCOUNTS_SEPARATE_TAB_KEY = "accounts_separate_tab"
 
 # Instance-wide default UI language. The dashboard can override this per
 # browser with localStorage; this key is the fallback when no override exists.
@@ -1186,6 +1193,27 @@ def set_key_before_hidden(accounts_dir, hidden):
         data[KEY_BEFORE_HIDDEN_KEY] = hidden
         save(accounts_dir, data)
     return hidden
+
+
+def accounts_separate_tab(accounts_dir):
+    """Whether the panel gives the account sections a main tab of their own.
+
+    Off unless the stored value is the boolean true, with the same `is True`
+    normalisation as the disclosures above: the merged "网关与账号" tab is what
+    every install has always shown, so a hand-edited "false", a 1, an object or
+    a missing key must all keep it rather than split the nav by accident.
+    """
+    return load(accounts_dir).get(ACCOUNTS_SEPARATE_TAB_KEY) is True
+
+
+def set_accounts_separate_tab(accounts_dir, separate):
+    """Persist the account-tab switch. Returns the stored boolean."""
+    separate = bool(separate)
+    with _lock:
+        data = load(accounts_dir)
+        data[ACCOUNTS_SEPARATE_TAB_KEY] = separate
+        save(accounts_dir, data)
+    return separate
 
 
 def update_check_enabled(accounts_dir):
