@@ -360,6 +360,11 @@ a:hover{text-decoration:underline}
    page on every reload. */
 .main-page{display:none}
 .main-page.active{display:block}
+/* 设置页「顶部页签显示」收起的页面：靠 hidden 属性，而不是内联 display ——
+   「智能体配置」的入口在不可用时也是自己改 display 收起来的，两套机制各管各的
+   才不会互相把对方放出来。作者样式本就压过 [hidden] 的 UA 样式，所以这里显式
+   声明一次，免得以后给这两个选择器加 display 时又悄悄失效。 */
+.main-nav-btn[hidden],.main-page[hidden]{display:none!important}
 /* 页面级两栏：左侧区块导航由 initPageNav() 依据页面内的 section 现场生成，
    这里的样式只描述外观，既不预设任何页面，也不预设任何区块。给页面加
    .page-nav-on 即可启用，区块不足两项的页面不加这个类，保持单栏。 */
@@ -698,6 +703,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '(不限)': '(unlimited)',
     '(仅桌面端对话)': '(desktop chats only)',
     '(低于': '(below',
+    '(全部显示)': '(all shown)',
     '(共': '(total',
     '(其他)': '(other)',
     '(夜间0.5x)': '(0.5x at night)',
@@ -707,6 +713,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '(已自定义)': '(custom)',
     '(当前不校验)': '(not verified)',
     '(当前为默认密码)': '(currently the default password)',
+    '(显示 ': '(showing ',
     '(有调用的模型:': '(models with usage:',
     '(未启用)': '(disabled)',
     '(每': '(every',
@@ -719,6 +726,8 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '+ 添加 API Key': '+ Add API Key',
     '+ 添加槽位': '+ Add slot',
     '+ 添加账号 (OAuth)': '+ Add account (OAuth)',
+    '「设置」是页面显示开关自己的入口，收起来就放不回去了，固定保留。': 'Settings is where this switch lives, so it cannot be unticked - there would be no way back.',
+    '取消勾选就把该页签从顶部收起来，勾回来即恢复；清单按顶部现有的页签现场生成，上游增删页面这里自动跟上；偏好存在本网关，换浏览器、重启服务都记得。「设置」是这一页自己的入口，固定保留。': 'Unticking a tab takes it out of the top bar; tick it again to bring it back. The list is built from the tabs the panel actually has, so a page added or removed upstream shows up here on its own. The choice is stored on this gateway, so it survives a different browser and a restart. Settings stays: it is where this switch lives.',
     '添加': 'Add',
     '0 个 Key': '0 keys',
     '0 个 Key 生效': '0 keys active',
@@ -940,6 +949,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '固定国内版出口': 'China exit only',
     '固定国际版出口': 'Global exit only',
     '国内版': 'China',
+    '顶部页签显示': 'Top tab visibility',
     '（国内版）': '(China)',
     '国内版 (China)': 'China',
     '国内版 (China) · copilot.tencent.com': 'China · copilot.tencent.com',
@@ -1719,6 +1729,8 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     "+ 添加 API Key": "+ 新增 API Key",
     "+ 添加槽位": "+ 新增槽位",
     "+ 添加账号 (OAuth)": "+ 新增帳號 (OAuth)",
+    "「设置」是页面显示开关自己的入口，收起来就放不回去了，固定保留。": "「設定」是頁面顯示開關自己的入口，收起來就放不回去了，固定保留。",
+    "取消勾选就把该页签从顶部收起来，勾回来即恢复；清单按顶部现有的页签现场生成，上游增删页面这里自动跟上；偏好存在本网关，换浏览器、重启服务都记得。「设置」是这一页自己的入口，固定保留。": "取消勾選就把該頁籤從頂部收起來，勾回來即恢復；清單按頂部現有的頁籤現場生成，上游增刪頁面這裡自動跟上；偏好存在本閘道，換瀏覽器、重啟服務都記得。「設定」是這一頁自己的入口，固定保留。",
     "添加": "新增",
     "API Key 不能为空": "API Key 不能為空",
     "API Key 与出口绑定": "API Key 與出口繫結",
@@ -2130,6 +2142,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     "限额已保存": "限額已儲存",
     "需要先回收密钥": "需要先回收金鑰",
     "面板手动停用，该账号不参与轮询": "面板手動停用，該帳號不參與輪詢",
+    "顶部页签显示": "頂部頁籤顯示",
     "默认出口": "預設出口",
     "默认开启": "預設開啟",
     "（内容相同就复用同一条，不重复写），并声明「现在生效的是哪一条」。每条请求按它发生时生效的那一条计价，所以之后调价不会改写之前的数字；请求只记它引用的是哪条策略，不内嵌整份价格。取价时还没有价的模型，用之后第一次取到的价补算并标": "（內容相同就複用同一條，不重複寫），並宣告「現在生效的是哪一條」。每條請求按它發生時生效的那一條計價，所以之後調價不會改寫之前的數字；請求只記它引用的是哪條策略，不內嵌整份價格。取價時還沒有價的模型，用之後第一次取到的價補算並標",
@@ -3320,6 +3333,14 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
         <button onclick="saveUiLanguage(this)">保存默认语言</button>
         <button class="sec" onclick="clearUiLanguageOverride(this)">清除本浏览器的语言覆盖</button>
       </div>
+    </section>
+
+    <section>
+      <h2>顶部页签显示 <em id="setPagesState"></em></h2>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:12px">
+        取消勾选就把该页签从顶部收起来，勾回来即恢复；清单按顶部现有的页签现场生成，上游增删页面这里自动跟上；偏好存在本网关，换浏览器、重启服务都记得。「设置」是这一页自己的入口，固定保留。
+      </div>
+      <div id="setPagesList" style="display:flex;flex-wrap:wrap;gap:8px 20px"></div>
     </section>
 
     <section>
@@ -7359,6 +7380,181 @@ async function toggleAccountsSection(evt){
 }
 // ==== 账号区折叠结束 ====
 
+// ==== 顶部页签显示开始 ====
+// 顶部页签的显隐偏好。清单不写死：按 .main-nav 里现有的按钮现场生成，上游以后
+// 增删页面这里自动跟上，不必同步改这份代码。
+// 偏好存在服务端（accounts/settings.json 的 hidden_pages），与账号区折叠、
+// 「(切换前)」行是同一套通道，换浏览器、重启服务都记得，不用 localStorage。
+
+/* 「设置」固定保留：它是这个开关自己的入口，收起来之后面板里再没有别的地方能把它
+   放回来。其余页面都能自由选择。 */
+const PAGE_KEEP_VISIBLE = 'settings';
+/* 页签 key 由按钮 id 推出（btnNavGateway → gateway），与 switchMainTab() 和启动
+   脚本用的是同一套命名；id 不是这个形状的按钮直接跳过，不猜。 */
+const NAV_BUTTON_PREFIX = 'btnNav';
+/* 页面 key 的合法形状，与 wb_settings.PAGE_KEY_RE 一致 */
+const PAGE_KEY_SHAPE = /^[a-z][a-z0-9_-]{0,31}$/;
+
+let _hiddenPages = [];
+
+function navPageKey(btn){
+  const id = (btn && btn.id) || '';
+  if(id.indexOf(NAV_BUTTON_PREFIX) !== 0) return '';
+  return id.slice(NAV_BUTTON_PREFIX.length).toLowerCase();
+}
+
+function navPageRows(){
+  const nav = document.querySelector('.main-nav');
+  if(!nav) return [];
+  const rows = [];
+  Array.from(nav.querySelectorAll('.main-nav-btn')).forEach(function(btn){
+    const key = navPageKey(btn);
+    if(!key) return;
+    rows.push({
+      key: key,
+      btn: btn,
+      page: document.getElementById('page' + key.charAt(0).toUpperCase() + key.slice(1)),
+    });
+  });
+  return rows;
+}
+
+/* 清单上的标签取页签按钮的文案。i18n 把原文留在文本节点的 __wbSrc 上（译文写在
+   data 上），所以这里读 __wbSrc 拿到的一律是中文原文——插进设置页后由面板自己的
+   i18n 观察者翻译，切语言时也跟着 restore/walk 走，不用在这里额外重建一次。
+   没被 walk 过的节点（界面一直是中文）没有 __wbSrc，textContent 本身就是原文。 */
+function navPageLabel(row){
+  const btn = row.btn;
+  const node = btn ? btn.firstChild : null;
+  const source = (node && node.nodeType === 3 && node.__wbSrc != null)
+    ? node.__wbSrc : (btn ? btn.textContent : '');
+  return String(source || '').replace(/\s+/g, ' ').trim() || row.key;
+}
+
+function hiddenPages(){
+  return _hiddenPages.slice();
+}
+
+/* 「设置」固定可见，所以一定有结果；真到了没有可见页面那一步，退回网关页。 */
+function firstVisiblePage(){
+  const rows = navPageRows();
+  for(let i = 0; i < rows.length; i++){
+    if(!pageHidden(rows[i].key)) return rows[i].key;
+  }
+  return 'gateway';
+}
+
+/* 这一页是否被收起。判断散在六个地方，两个方向写反一次就是「点一下收起来、
+   再点一下还是收起来」，收进这里只留一处。 */
+function pageHidden(key){
+  return _hiddenPages.indexOf(key) >= 0;
+}
+
+/* 服务端下发的清单照单收下，但仍过一遍归一化：手改过的文件、将来的客户端或上游
+   新增的页面都可能带来这里不认识的 key，不认识的忽略即可。「设置」无论从哪个来源
+   来都不收起——不这样兜底，手改 settings.json 就能把面板唯一的入口关掉。
+   归一化口径与 wb_settings._clean_page_keys 对齐（形状、去重、丢掉「设置」），
+   免得两边记的清单不是一回事；条数上限只在服务端，面板一次最多提交自己那几个页签。 */
+function normaliseHiddenPages(hidden){
+  if(!Array.isArray(hidden)) return [];
+  const out = [];
+  hidden.forEach(function(key){
+    if(typeof key !== 'string') return;
+    const page = key.trim();
+    if(!PAGE_KEY_SHAPE.test(page) || page === PAGE_KEEP_VISIBLE) return;
+    if(out.indexOf(page) >= 0) return;
+    out.push(page);
+  });
+  return out;
+}
+
+/* 唯一写内存状态的入口：页签按钮、页面容器与设置页的勾选框一起改，三者不可能不同步。 */
+function applyHiddenPages(hidden){
+  _hiddenPages = normaliseHiddenPages(hidden);
+  navPageRows().forEach(function(row){
+    const off = pageHidden(row.key);
+    // 用 hidden 属性而不是内联 display：「智能体配置」不可用时也是自己改 display
+    // 收起来的，两套机制各管各的，谁都不会把对方放出来。
+    row.btn.hidden = off;
+    if(row.page) row.page.hidden = off;
+  });
+  // 当前所在页被收起来了（书签、上次停留的页签）就退到第一个还看得见的页面，
+  // 免得停在一个顶部没有任何入口的页面上。「设置」固定可见，所以一定有落点。
+  if(pageHidden(currentMainTab)){
+    const visible = navPageRows().filter(function(row){ return !pageHidden(row.key); });
+    if(visible.length) switchMainTab(visible[0].key);
+  }
+  renderPageVisibility();
+  return _hiddenPages;
+}
+
+function pageVisibilityBox(list, key){
+  const items = Array.from(list.children);
+  for(let i = 0; i < items.length; i++){
+    const box = items[i].firstElementChild;
+    if(box && box.dataset && box.dataset.pageKey === key) return box;
+  }
+  return null;
+}
+
+function pageVisibilityItem(row){
+  const item = document.createElement('label');
+  item.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;min-height:32px;cursor:pointer';
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.style.cssText = 'width:16px;height:16px';
+  box.dataset.pageKey = row.key;
+  box.disabled = (row.key === PAGE_KEEP_VISIBLE);
+  if(box.disabled) item.title = '「设置」是页面显示开关自己的入口，收起来就放不回去了，固定保留。';
+  box.addEventListener('change', function(){ togglePageVisibility(row.key); });
+  const text = document.createElement('span');
+  text.textContent = navPageLabel(row);
+  item.appendChild(box);
+  item.appendChild(text);
+  return item;
+}
+
+/* 重建只在清单变了的时候做：其余情况只同步勾选状态，免得每次 loadSettings 都把
+   焦点和滚动位置抖掉。指纹的写法与侧栏导航的 pageNavSignature 一致。 */
+function renderPageVisibility(){
+  const list = document.getElementById('setPagesList');
+  if(!list) return;
+  const rows = navPageRows();
+  const stamp = rows.map(function(row){ return row.key + '\u0001' + navPageLabel(row); }).join('\u0002');
+  if(list.dataset.pagesStamp !== stamp){
+    while(list.firstChild) list.removeChild(list.firstChild);
+    rows.forEach(function(row){ list.appendChild(pageVisibilityItem(row)); });
+    list.dataset.pagesStamp = stamp;
+  }
+  rows.forEach(function(row){
+    const box = pageVisibilityBox(list, row.key);
+    if(box) box.checked = !pageHidden(row.key);
+  });
+  const state = document.getElementById('setPagesState');
+  if(state){
+    const shown = rows.length - _hiddenPages.length;
+    state.textContent = _hiddenPages.length ? ('(显示 ' + shown + '/' + rows.length + ')') : '(全部显示)';
+    state.style.color = _hiddenPages.length ? 'var(--warn)' : 'var(--dim)';
+  }
+}
+
+/* 显式选择走既有的 settings save 通道（一个键的 patch，不动别的设置）。 */
+async function togglePageVisibility(key){
+  const before = _hiddenPages.slice();
+  const next = before.filter(function(k){ return k !== key; });
+  if(before.indexOf(key) < 0) next.push(key);
+  applyHiddenPages(next);
+  try {
+    const res = await postJSON('/settings/save', {hidden_pages: next});
+    // 服务端会丢掉不合法的 key，以它存的为准，免得两边记的不是一回事
+    if(res && Array.isArray(res.hidden_pages)) applyHiddenPages(res.hidden_pages);
+  } catch(e) {
+    applyHiddenPages(before);
+    toast('页面显示设置保存失败: ' + e.message, 'bad');
+  }
+}
+// ==== 顶部页签显示结束 ====
+
 async function loadSettings(showToast){
   try {
     const data = await getJSON('/settings');
@@ -7381,6 +7577,8 @@ async function loadSettings(showToast){
     applyAccountsCollapsed(data.accounts_collapsed === true);
     // 「(切换前)」行开关同理：只有明确存过 true 才收起，其余都照常显示。
     applyKeyBeforeHidden(data.key_before_hidden === true);
+    // 顶部页签显示：字段缺失或存坏了都按「全部显示」算，见 normaliseHiddenPages。
+    applyHiddenPages(data.hidden_pages);
 
       const creditsHoursInput = document.getElementById('setCreditsRefreshHours');
       if(creditsHoursInput && data.credits_refresh_hours !== undefined){
@@ -8708,6 +8906,9 @@ async function loadAgentsAvailability(){
 function switchMainTab(tab){
   // 入口被撤掉后（?tab=agents 的书签、上次停留的页签）退回网关页
   if(tab === 'agents' && !AGENTS_AVAILABLE) tab = 'gateway';
+  // 被「顶部页签显示」收起来的页面同理：书签与上次停留的页签都不能把内容调出来，
+  // 否则页面容器带着 hidden 被点亮，屏幕上一片空白。
+  if(pageHidden(tab)) tab = firstVisiblePage();
   currentMainTab = tab;
   // Remember the page across reloads. The URL is updated so the address bar
   // matches what is on screen and a copied link reopens the same page;
