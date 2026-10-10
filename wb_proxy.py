@@ -6403,6 +6403,7 @@ def runtime_settings_view():
         "remaining_priority_enabled":
             wb_settings.remaining_priority_enabled(ACCOUNTS_DIR),
         "accounts_collapsed": wb_settings.accounts_collapsed(ACCOUNTS_DIR),
+        "accounts_separate_tab": wb_settings.accounts_separate_tab(ACCOUNTS_DIR),
         "key_before_hidden": wb_settings.key_before_hidden(ACCOUNTS_DIR),
         "hidden_pages": wb_settings.hidden_pages(ACCOUNTS_DIR),
         "update_check_enabled": wb_settings.update_check_enabled(ACCOUNTS_DIR),
@@ -12826,6 +12827,15 @@ class Handler(BaseHTTPRequestHandler):
                                    "invalid_request_error")
             wb_settings.set_accounts_collapsed(ACCOUNTS_DIR, raw)
             reply["accounts_collapsed"] = raw
+        if "accounts_separate_tab" in payload:
+            # Same shape again: strictly a JSON boolean, because "false" as a
+            # string would be truthy and silently split the nav.
+            raw = payload.get("accounts_separate_tab")
+            if not isinstance(raw, bool):
+                return self._error(400, "accounts_separate_tab must be true or false",
+                                   "invalid_request_error")
+            wb_settings.set_accounts_separate_tab(ACCOUNTS_DIR, raw)
+            reply["accounts_separate_tab"] = raw
         if "key_before_hidden" in payload:
             # Same shape as accounts_collapsed: one disclosure state per
             # submission, and strictly a JSON boolean, because "false" as a
