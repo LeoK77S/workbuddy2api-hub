@@ -141,6 +141,9 @@ function makeElement(tag, options) {
     // 面板用 firstElementChild 在日志终端里从头部裁行（跳过文本节点），
     // 真 DOM 的成员，这里也照真 DOM 建模：第一个元素子节点，没有就是 null。
     get firstElementChild() { return children.find(c => c && c.nodeType === 1) || null; },
+    // 同一个理由的另一头：设置页的页签清单读文本节点上的 i18n 原稿（__wbSrc），
+    // 用的是 firstChild 而不是 firstElementChild，因为原文就在文本节点上。
+    get firstChild() { return children[0] || null; },
     parentNode: null,
     parentElement: null,
     offsetWidth: 0,
