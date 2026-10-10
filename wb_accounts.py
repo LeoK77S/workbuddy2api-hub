@@ -658,11 +658,20 @@ class Account(object):
         }
 
     def _throttle_snapshot(self, now):
-        """Return one consistent view of account and per-model cooldowns."""
+        """Return one consistent view of account and per-model cooldowns.
+
+        `deadline` is the merged "not serving until" clock, and `cool_deadline`
+        the same thing restricted to the parks that expire on their own (a
+        rate-limit cooldown, a 402 balance park). The panel needs both: the
+        account card shows one "not serving" badge, while the「当前禁用」table
+        names each park by kind and must not report a breaker or a degrade as a
+        rate limit.
+        """
         with self._throttle_lock:
             error = self.last_error
             detail = self.last_error_detail
             deadline = max(self.cooldown_until, self.balance_until, self.breaker_until, self.degrade_until)
+            cool_deadline = max(self.cooldown_until, self.balance_until)
             active = [(model, until) for model, until in self.model_cooldowns.items()
                       if until > now]
         active.sort(key=lambda pair: (pair[1], pair[0]))
@@ -674,7 +683,7 @@ class Account(object):
             if self.cap_until(model, now) > 0:
                 entry["cappedAt"] = int(self.model_caps[model]["at"])
             models.append(entry)
-        return error, deadline, models, detail
+        return error, deadline, models, detail, cool_deadline
 
     def model_cooldowns_snapshot(self):
         """Active model cooldowns, ordered by recovery time (epoch seconds)."""
@@ -683,7 +692,8 @@ class Account(object):
     def public(self):
         exp = self.expires_at or jwt_exp(self.access_token)
         now = time.time()
-        last_error, deadline, models, last_error_detail = self._throttle_snapshot(now)
+        last_error, deadline, models, last_error_detail, cool_deadline = \
+            self._throttle_snapshot(now)
         return {
             "uid": self.uid,
             "nickname": self.nickname or (self.uid[:8] if self.uid else "?"),
@@ -703,6 +713,11 @@ class Account(object):
             "lastErrorDetail": last_error_detail or None,
             "inCooldown": deadline > now,
             "cooldownFor": round(max(0.0, deadline - now)) or None,
+            # Cooldown-only clock: the same "not serving" window minus the
+            # breaker/degrade clocks, which have their own fields above. The
+            # 「当前禁用」table names each park by kind, so it reads this one for
+            # its「上游限流」row instead of treating every park as a rate limit.
+            "coolFor": round(max(0.0, cool_deadline - now)) or None,
             "modelCooldowns": models,
             "softStreak": int(self.soft_streak),
             "unscopedStreak": int(self.unscoped_streak),
@@ -1247,8 +1262,11 @@ class Account(object):
         self.refresh_token = data.get("refreshToken") or self.refresh_token
         self.expires_at = jwt_exp(token) or self.expires_at
         with self._throttle_lock:
-            self.last_error = ""
+            # A fresh token says the credential is good; it says nothing about
+            # the chat path, so a breaker or degrade window keeps its reason.
             self.cooldown_until = 0
+            if not self._penalty_open():
+                self.last_error = ""
         if self.path and os.path.exists(os.path.dirname(self.path)):
             self.save(os.path.dirname(self.path))
         return True
@@ -2067,6 +2085,16 @@ self.balance_until - now, self.breaker_until - now, self.degrade_until - now)
                 wait = max(wait, max(0.0, self.model_cooldowns.get(model, 0.0) - now))
         return wait
 
+    def _penalty_open(self, now=None):
+        """True while a breaker or degrade window still holds this account.
+
+        Those two are penalties in their own right with their own clocks, so a
+        caller that means to clear the *cooldown* state must leave their reason
+        standing - see clear_error(). Call with _throttle_lock held.
+        """
+        now = time.time() if now is None else now
+        return self.breaker_until > now or self.degrade_until > now
+
     def clear_error(self, model=None, keep_caps=False):
         """清掉限流状态；keep_caps 保留「上游判定额度用满」的禁用。
 
@@ -2074,6 +2102,9 @@ self.balance_until - now, self.breaker_until - now, self.degrade_until - now)
         时刻之前这个组合就是不可用），不能顺手清掉——真机实测（2026-10-10）：
         auto-switch 开着时它会把刚记下的 cap 冷却一起清掉，6004 之后账号立刻
         又可用，禁用形同不存在。
+
+        原因只在没有惩罚窗口还压着账号时才清：否则熔断/降权窗口会比原因活得久，
+        面板上就只剩一句无解释的停用。
         """
         with self._throttle_lock:
             if model:
@@ -2088,10 +2119,11 @@ self.balance_until - now, self.breaker_until - now, self.degrade_until - now)
                 self.model_cooldowns.clear()
             if (self.last_error or self.cooldown_until
                     or self.last_error_detail or self.balance_until):
-                self.last_error = ""
-                self.last_error_detail = ""
                 self.cooldown_until = 0
                 self.balance_until = 0.0
+                if not self._penalty_open():
+                    self.last_error = ""
+                    self.last_error_detail = ""
 
 def _human_delta(seconds):
     if seconds is None: return None

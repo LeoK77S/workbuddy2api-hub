@@ -318,6 +318,65 @@ class AccountGovernanceTests(unittest.TestCase):
         self.assertEqual(account.degrade_until, 0.0)
         self.assertEqual(account.public()["lastError"], "")
 
+    def test_a_live_breaker_keeps_the_reason_that_explains_it(self):
+        """A park with no reason is unreadable in the panel.
+
+        clear_error() drops the cooldown parks, but a breaker or a degrade
+        window has its own clock and used to lose its last_error to that call
+        anyway - the「当前禁用」table then listed the account with nothing to say
+        why. The reason has to outlive the window it belongs to.
+        """
+        account = load_account("u-reason-kept")
+        for _ in range(A.BREAKER_THRESHOLD):
+            account.note_unknown_failure("connection: URLError")
+        account.clear_error()
+        view = account.public()
+        self.assertTrue(view["breakerFor"])
+        self.assertEqual(view["lastError"], "connection: URLError")
+
+        # Once the window is gone the reason goes with it.
+        account.breaker_until = 0.0
+        account.clear_error()
+        self.assertIsNone(account.public()["breakerFor"])
+        self.assertEqual(account.public()["lastError"], "")
+
+    def test_a_token_refresh_does_not_erase_a_live_breaker_reason(self):
+        account = load_account("u-refresh-reason")
+        account.refresh_token = "rt-1"
+        for _ in range(A.BREAKER_THRESHOLD):
+            account.note_unknown_failure("connection: URLError")
+        old = A.http_json
+        A.http_json = lambda *args, **kwargs: {
+            "data": {"accessToken": jwt(), "refreshToken": "rt-2"}}
+        try:
+            self.assertTrue(account.refresh())
+        finally:
+            A.http_json = old
+        view = account.public()
+        self.assertTrue(view["breakerFor"])
+        self.assertEqual(view["lastError"], "connection: URLError")
+
+    def test_cool_for_carries_the_cooldown_parks_only(self):
+        """The panel names each park by kind, so it needs them apart.
+
+        inCooldown / cooldownFor are the merged "not serving" clock the account
+        card uses; coolFor is the same window without the breaker/degrade clocks,
+        which the「当前禁用」table reads for its「上游限流」row.
+        """
+        account = load_account("u-cool-for")
+        account.note_error("HTTP 429 (account soft rate)", cooldown=600)
+        view = account.public()
+        self.assertTrue(view["coolFor"] > 0)
+        self.assertEqual(view["coolFor"], view["cooldownFor"])
+
+        breaker = load_account("u-cool-for-breaker")
+        for _ in range(A.BREAKER_THRESHOLD):
+            breaker.note_failure("HTTP 503")
+        parked = breaker.public()
+        self.assertTrue(parked["inCooldown"])
+        self.assertTrue(parked["breakerFor"])
+        self.assertIsNone(parked["coolFor"])
+
 
 class PanelTestSuccessTests(unittest.TestCase):
     """A green panel test is a served request, so it must clear the streak.

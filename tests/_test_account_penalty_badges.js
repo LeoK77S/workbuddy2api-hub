@@ -76,9 +76,21 @@ check('模型级冷却照旧出标签',
 /* ---- 3. 「当前禁用总览」也要列出来 ------------------------------------ */
 
 api.setView('intl');
+/* The payload shapes here are the ones the gateway actually sends: a parked
+ * account carries the merged inCooldown/cooldownFor clock (the account card's
+ * "not serving" badge), while coolFor stays null unless the park really is a
+ * cooldown. The「上游限流」row keys off coolFor, so a breaker must not appear as
+ * a rate limit with an invented 429 - see the checks below. */
 api.setAccounts([
-  {uid: 'intl-brk-0001', nickname: '熔断号', realm: 'intl', enabled: true, breakerFor: 1800},
-  {uid: 'intl-deg-0002', nickname: '降权号', realm: 'intl', enabled: true, degradeFor: 600},
+  {uid: 'intl-brk-0001', nickname: '熔断号', realm: 'intl', enabled: true,
+   inCooldown: true, cooldownFor: 1800, coolFor: null, breakerFor: 1800,
+   lastError: 'connection: URLError'},
+  {uid: 'intl-deg-0002', nickname: '降权号', realm: 'intl', enabled: true,
+   inCooldown: true, cooldownFor: 600, coolFor: null, degradeFor: 600,
+   lastError: 'connection: TimeoutError'},
+  {uid: 'intl-cool-0004', nickname: '限流号', realm: 'intl', enabled: true,
+   inCooldown: true, cooldownFor: 900, coolFor: 900,
+   lastError: 'HTTP 429 (account soft rate)'},
   {uid: 'intl-ok-0003', nickname: '正常号', realm: 'intl', enabled: true},
 ]);
 const rows = api.disabledRows();
@@ -91,5 +103,25 @@ check('熔断行给出恢复时间', !!brk.until, brk.until);
 check('正常账号不出现', !rows.some(r => r.who.includes('正常号')), JSON.stringify(rows));
 check('熔断与降权都只描述当前视图的账号',
   rows.every(r => r.realm === '国际版'), JSON.stringify(rows.map(r => r.realm)));
+
+/* ---- 4. 停用原因必须是真原因 ----------------------------------------- */
+
+const rowsFor = who => rows.filter(r => r.who.includes(who)).map(r => r.kind);
+check('熔断只出一行熔断，不再冒充上游限流',
+  JSON.stringify(rowsFor('熔断号')) === JSON.stringify(['熔断']), rowsFor('熔断号').join(','));
+check('降权只出一行降权，不再冒充上游限流',
+  JSON.stringify(rowsFor('降权号')) === JSON.stringify(['降权']), rowsFor('降权号').join(','));
+check('熔断行带出真实的上一次失败',
+  /connection: URLError/.test(brk.reason), brk.reason);
+check('降权行带出真实的上一次失败',
+  /connection: TimeoutError/.test(rows.find(r => r.kind === '降权').reason),
+  rows.find(r => r.kind === '降权').reason);
+check('真的冷却才列上游限流',
+  JSON.stringify(rowsFor('限流号')) === JSON.stringify(['上游限流']), rowsFor('限流号').join(','));
+check('原因缺失时不编造 429',
+  !rows.some(r => r.kind === '上游限流' && r.reason === '上游 429'), JSON.stringify(rows));
+check('熔断/降权各只出现一次',
+  kinds.filter(k => k === '熔断').length === 1 && kinds.filter(k => k === '降权').length === 1,
+  kinds.join(','));
 
 console.log('account penalty badge assertions passed');
