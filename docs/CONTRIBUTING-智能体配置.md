@@ -20,8 +20,8 @@
 ```
 wb-proxy/
 ├── wb_agents.py               # 核心模块：文本编辑器、注册表、备份还原、公共 API
-├── wb_proxy.py                # 路由层：/agents, /agents/apply, /agents/restore
-├── dashboard.html             # 交互层：智能体配置看板、状态渲染与异步请求
+├── wb_proxy.py                # 路由层：/agents, /agents/apply, /agents/restore（按需 import）
+├── dashboard.html             # 交互层：设置页里的智能体配置区块、状态渲染与异步请求
 └── accounts/                  # 数据持久化目录（由网关管理）
     ├── integration-state.json # 智能体集成状态账本
     └── agent-backups/         # 备份根目录
@@ -214,9 +214,12 @@ python tests/run_all.py
 ## 7. API 契约与前后端协同
 
 ### 7.1 `GET /agents`
-返回系统支持的所有客户端探测状态、模型目录与网关 Base URL 提示：
+返回系统支持的所有客户端探测状态、模型目录与网关 Base URL 提示。
+
+**同机闸门**：这一节改的是网关进程所在机器上的配置文件，只在「浏览器与网关同机」时成立，所以路由本身带一道判定（`Handler._agents_request_allowed()`）——取请求的真实来源地址（经反代时读 `X-Real-IP` / `X-Forwarded-For`，与登录限流共用 `login_rate_limit_key()`），必须是本机地址；容器与 OpenWrt 形态一律不开放。不通过时 `GET /agents` 回 `{"enabled": false}`（前端据此隐藏整块内容与侧栏入口），两个写接口按 404 处理，且**连 `wb_agents` 都不 import**（`wb_proxy.py` 里 `import wb_agents` 已改成 `wb_agents_module()` 按需载入）。新增客户端时不需要碰这道闸门。
 ```json
 {
+  "enabled": true,
   "clients": [
     {
       "id": "claude-code",
@@ -253,7 +256,7 @@ python tests/run_all.py
     "models": [...]                 // 可选：省略时后端自动回退至网关全量模型目录
   }
   ```
-- 鉴权：需要面板会话密码认证（通过 Cookie 或 `pwd` 鉴权头）。
+- 鉴权：需要面板会话密码认证（通过 Cookie 或 `pwd` 鉴权头），且请求必须来自本机（见 7.1 的同机闸门），否则按 404 处理。
 
 ### 7.3 `POST /agents/restore`
 - 请求体：
