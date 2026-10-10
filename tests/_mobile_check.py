@@ -258,10 +258,34 @@ def run_checks(filter_name):
             widths = page.evaluate(
                 "Array.from(document.querySelectorAll('.main-nav-btn')).map(b => Math.round(b.getBoundingClientRect().width))"
             )
+            # 页签数量随功能增减（#246 把「智能体配置」并进设置页，由 5 个回到 4 个），
+            # 所以不写死数量：只要求导航条真的渲染出了按钮、且它们等宽。
             check(
                 "nav-equal-width",
-                len(widths) == 4 and max(widths) - min(widths) <= 2,
+                len(widths) >= 2 and max(widths) - min(widths) <= 2,
                 widths,
+            )
+            # 窄屏下按钮标签的 min-content 可能超过 flex:1 分到的份额，差额只能往外
+            # 顶（#150、#246 都是这么回归的）。这里量末位按钮右边缘越出导航条多少。
+            overflow = page.evaluate(
+                """
+                (() => {
+                  const nav = document.querySelector('.main-nav');
+                  const btns = Array.from(nav.querySelectorAll('.main-nav-btn'));
+                  if(!btns.length) return null;
+                  const nr = nav.getBoundingClientRect();
+                  const last = btns[btns.length - 1].getBoundingClientRect();
+                  return {
+                    over: Math.round(last.right - nr.right),
+                    scroll: Math.round(nav.scrollWidth - nav.clientWidth)
+                  };
+                })()
+                """
+            )
+            check(
+                "nav-no-overflow",
+                bool(overflow) and overflow["over"] <= 1 and overflow["scroll"] <= 1,
+                overflow,
             )
             nav_w = page.evaluate(
                 "document.querySelector('.main-nav').getBoundingClientRect().width"

@@ -659,13 +659,21 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
   };
 
   // 3. Tab 初始化（与下方主脚本的 MAIN_TABS 保持一致）
-  var TABS = ['gateway','analytics','agents','settings','logs'];
-  var pick = null;
+  var TABS = ['gateway','analytics','settings','logs'];
+  // 「智能体配置」不再是独立页签，并入设置页；旧链接与旧书签带过来时落到设置页，
+  // 并记住「是冲着智能体配置来的」，等它渲染出来后滚到那一段。
+  var LEGACY_TABS = { agents: 'settings' };
+  var pick = null, legacyAgents = false;
   try {
     var q = new URLSearchParams(location.search).get('tab');
     var s = localStorage.getItem('wb-proxy-main-tab');
-    pick = [q, s].find(function(t){ return TABS.indexOf(t) !== -1; }) || 'gateway';
+    var wanted = [q, s].find(function(t){
+      return !!t && (TABS.indexOf(t) !== -1 || !!LEGACY_TABS[t]);
+    });
+    if(wanted && LEGACY_TABS[wanted]){ legacyAgents = true; wanted = LEGACY_TABS[wanted]; }
+    pick = wanted || 'gateway';
   } catch(e) { pick = 'gateway'; }
+  if(legacyAgents) window.__AGENTS_ANCHOR__ = true;
   window.__MAIN_TAB__ = pick;
 
   document.addEventListener('DOMContentLoaded', function(){
@@ -2572,9 +2580,6 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       <button class="main-nav-btn" id="btnNavAnalytics" onclick="switchMainTab('analytics')">
         数据看板
       </button>
-      <button class="main-nav-btn" id="btnNavAgents" onclick="switchMainTab('agents')">
-        智能体配置
-      </button>
       <button class="main-nav-btn" id="btnNavSettings" onclick="switchMainTab('settings')">
         设置
       </button>
@@ -3345,36 +3350,15 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
         </div>
       </section>
 
-      <section>
-        <h2>运行信息</h2>
-      <table>
-        <tbody>
-          <tr><td>当前版本</td><td class="mono" id="setVersion">-</td></tr>
-          <tr><td>账号存储目录</td><td class="mono" id="setAccountsDir">-</td></tr>
-          <tr><td>用量日志目录</td><td class="mono" id="setUsageDir">-</td></tr>
-          <tr><td>设置文件</td><td class="mono" id="setFile">-</td></tr>
-        </tbody>
-      </table>
-      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
-        <button class="sec" onclick="loadSettings(true)">刷新</button>
-        <button class="sec" onclick="panelLogout()">退出面板登录</button>
-      </div>
-    </section>
-
-  </div>
-
-  <div id="pageAgents" class="main-page">
-    <div style="margin-bottom:16px">
-      <h2 style="margin:0;font-size:16px;color:var(--fg)">智能体配置</h2>
-      <div style="font-size:12px;color:var(--dim);margin-top:4px">检测本机已安装的 AI 编程客户端，一键把它们的配置指向本网关；原始文件会先备份，随时可一键还原。</div>
-    </div>
-
-    <!-- 左侧导航由 initPageNav() 扫描本页的 section 自动生成，增删区块无需同步改动。 -->
-    <section>
+    <!-- 「智能体配置」并入设置页（issue #246）：一次性动作，且只在「浏览器与网关
+         同机」时成立 —— 服务端 / Docker / OpenWrt 下 GET /agents 回 enabled:false，
+         下面这几块连侧栏入口一起隐藏（见 setAgentsSectionsVisible）。左侧导航仍由
+         initPageNav() 扫描 section 自动生成，增删区块无需同步改动。 -->
+    <section class="agents-only" id="agents-config" style="display:none">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
         <div>
-          <h2 style="margin:0">连接信息 <em id="agentConnState"></em></h2>
-          <div style="font-size:12px;color:var(--dim);margin-top:4px">写入各客户端配置时使用的网关地址、鉴权 Key 与默认模型。</div>
+          <h2 style="margin:0">智能体配置 <em id="agentConnState"></em></h2>
+          <div style="font-size:12px;color:var(--dim);margin-top:4px">检测本机已安装的 AI 编程客户端，一键把它们的配置指向本网关；原始文件会先备份，随时可一键还原。写入时使用下面的网关地址、鉴权 Key 与默认模型。</div>
         </div>
         <button class="sec mini" onclick="loadAgents(true)" title="重新检测本机客户端">刷新</button>
       </div>
@@ -3398,7 +3382,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       <div style="font-size:12px;color:var(--dim);margin-top:10px">「全局 API Key」表示不在客户端配置里写入具体 Key，客户端沿用网关当前生效的全局 Key。</div>
     </section>
 
-    <section>
+    <section class="agents-only" style="display:none">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
         <div>
           <h2 style="margin:0">本机客户端 <em id="agentDetectState"></em></h2>
@@ -3408,7 +3392,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       <div id="agentCardGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px"></div>
     </section>
 
-    <section>
+    <section class="agents-only" style="display:none">
       <div>
         <h2 style="margin:0">其他客户端</h2>
         <div style="font-size:12px;color:var(--dim);margin-top:4px">任何支持 OpenAI 兼容或 Anthropic Messages 协议的客户端都可以手动接入本网关，把下面的地址填进客户端的 Base URL / API 地址即可；Key 到「设置」页复制。</div>
@@ -3429,6 +3413,23 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       </table>
       <div style="font-size:12px;color:var(--dim);margin-top:10px">鉴权 Key 请前往「设置 → API Key 与出口绑定」页复制，填入客户端的 API Key / Token 字段。</div>
     </section>
+
+      <section>
+        <h2>运行信息</h2>
+      <table>
+        <tbody>
+          <tr><td>当前版本</td><td class="mono" id="setVersion">-</td></tr>
+          <tr><td>账号存储目录</td><td class="mono" id="setAccountsDir">-</td></tr>
+          <tr><td>用量日志目录</td><td class="mono" id="setUsageDir">-</td></tr>
+          <tr><td>设置文件</td><td class="mono" id="setFile">-</td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="sec" onclick="loadSettings(true)">刷新</button>
+        <button class="sec" onclick="panelLogout()">退出面板登录</button>
+      </div>
+    </section>
+
   </div>
 
   <div id="pageLogs" class="main-page">
@@ -6240,7 +6241,7 @@ function generatePageList(current, total){
 
 // Tab ids in nav order. One list so the restore path and the nav cannot
 // drift apart.
-const MAIN_TABS = ['gateway', 'analytics', 'agents', 'settings', 'logs'];
+const MAIN_TABS = ['gateway', 'analytics', 'settings', 'logs'];
 const MAIN_TAB_STORE = 'wb-proxy-main-tab';
 let currentMainTab = 'gateway';
 let analyticsRange = 'today';
@@ -7999,18 +8000,15 @@ function switchMainTab(tab){
   const btnAnalytics = document.getElementById('btnNavAnalytics');
   const btnLogs = document.getElementById('btnNavLogs');
   const btnSettings = document.getElementById('btnNavSettings');
-  const btnAgents = document.getElementById('btnNavAgents');
   const pageGateway = document.getElementById('pageGateway');
   const pageAnalytics = document.getElementById('pageAnalytics');
   const pageLogs = document.getElementById('pageLogs');
   const pageSettings = document.getElementById('pageSettings');
-  const pageAgents = document.getElementById('pageAgents');
   const tabs = [
     ['gateway', btnGateway, pageGateway],
     ['analytics', btnAnalytics, pageAnalytics],
     ['logs', btnLogs, pageLogs],
-    ['settings', btnSettings, pageSettings],
-    ['agents', btnAgents, pageAgents]
+    ['settings', btnSettings, pageSettings]
   ];
   tabs.forEach(([name, btn, page]) => {
     if(!btn || !page) return;
@@ -8021,8 +8019,8 @@ function switchMainTab(tab){
     if(on) initPageNav(page);
   });
   if(tab === 'analytics'){ loadAnalytics(); loadAnalyticsMatrix(); }
-  if(tab === 'settings'){ loadSettings(); loadProxySlots(); }
-  if(tab === 'agents'){ loadAgents(); }
+  // 「智能体配置」并入设置页，只在同机看板里出现（见 maybeLoadAgents）
+  if(tab === 'settings'){ loadSettings(); loadProxySlots(); maybeLoadAgents(); }
   if(tab === 'logs'){
     startLogPolling();
     fetchNewLogs(true);
@@ -8034,20 +8032,36 @@ function switchMainTab(tab){
 
 /* ---- 智能体一键配置模块 ----
    后端接口（wb_agents.py / wb_proxy.py）：
-     GET  /agents          → {clients:[...], keys:[...], models:[...], gateway:{base_url}}
+     GET  /agents          → {enabled, clients:[...], keys:[...], models:[...], gateway:{base_url}}
      POST /agents/apply    {client, client_id, base_url, key_id, model, models} → {client, label, applied_at, base_url, model, files, warnings}
      POST /agents/restore  {client, client_id}                                 → {client, label, restored, deleted}
    每个 client: {id, label, desc, protocol('anthropic'|'openai'), config_paths:[...],
                  installed, configured, applied:{at, base_url, model, files, external_change}}
+   这块内容现在挂在「设置」页里（issue #246），且只在网关与看板同机时才有意义：
+   /agents 回 enabled:false 就整块连侧栏入口一起收起来。
    这里只用 getJSON/postJSON/toast/esc，接口字段缺省时尽量降级展示而不是报错。 */
 let AGENTS_DATA = null;
 let AGENT_MODELS = [];
 let AGENT_KEYS = [];
 let AGENTS_LOADING = false;
+let AGENTS_ENABLED = null;   // null = 还没问过服务端
 
 function agentClients(){
   const d = AGENTS_DATA || {};
   return d.clients || d.agents || [];
+}
+
+/* 服务端判定为「非同机」（远程看板 / Docker / OpenWrt）时，把这几节收起来；
+   侧栏由 observePageNav() 的 MutationObserver 跟着重算，不用手动重建。 */
+function setAgentsSectionsVisible(on){
+  document.querySelectorAll('#pageSettings section.agents-only').forEach(function(sec){
+    sec.style.display = on ? '' : 'none';
+  });
+}
+
+async function maybeLoadAgents(){
+  if(AGENTS_ENABLED === false){ setAgentsSectionsVisible(false); return; }
+  await loadAgents();
 }
 
 async function loadAgents(showToast){
@@ -8057,6 +8071,14 @@ async function loadAgents(showToast){
   if(state){ state.textContent = '(检测中...)'; state.style.color = 'var(--dim)'; }
   try {
     const data = await getJSON('/agents');
+    if(data && data.enabled === false){
+      // 不是同机看板：功能不成立，入口与内容都不出现，也不再探测。
+      AGENTS_ENABLED = false;
+      setAgentsSectionsVisible(false);
+      return;
+    }
+    AGENTS_ENABLED = true;
+    setAgentsSectionsVisible(true);
     AGENTS_DATA = data || {};
     AGENT_MODELS = AGENTS_DATA.models || [];
     AGENT_KEYS = AGENTS_DATA.keys || AGENTS_DATA.api_keys || [];
@@ -8069,6 +8091,15 @@ async function loadAgents(showToast){
       state.style.color = n ? 'var(--accent2)' : 'var(--dim)';
     }
     if(showToast) toast('客户端检测完成', 'ok');
+    // 旧链接 ?tab=agents 落到设置页：等这块渲染出来再滚过去（走区块跳转，
+    // 让开吸顶 header 与窄屏下的导航条）。先把侧栏收进这三块再跳，否则高亮
+    // 会停在别的区块上。
+    if(window.__AGENTS_ANCHOR__){
+      window.__AGENTS_ANCHOR__ = false;
+      const page = document.getElementById('pageSettings');
+      initPageNav(page);
+      scrollToPageSection(page, 'agents-config', false);
+    }
   } catch(e) {
     if(state){ state.textContent = '(加载失败)'; state.style.color = 'var(--bad)'; }
     if(!isAuthError(e)) toast('智能体列表加载失败: ' + e.message, 'bad');
