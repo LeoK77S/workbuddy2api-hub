@@ -8924,6 +8924,23 @@ def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=No
                 % (session_key, len(upstream_body.get("messages") or [])))
     total = max(1, POOL.count_ready(realm, model=model)) if POOL else 1
     tried = set()
+    # 这一轮请求已经记过账的账号：重试轮（transient_hits 后 tried.clear() 整池
+    # 重轮）会把同一个账号再挑一遍，若每次都记，一次请求就能给同一个账号记上
+    # 好几笔 fails/degrade——池子越空、重轮越频繁，越容易把一个刚抖了一下的
+    # 账号直接推过熔断阈值。一次请求对一个账号最多记一次。
+    charged = set()
+
+    def charge_account(account, message, unknown):
+        """给账号记一笔失败，一次请求最多记一笔（见上面的 charged）。"""
+        if account.uid in charged:
+            return False
+        charged.add(account.uid)
+        if unknown:
+            account.note_unknown_failure(message)
+        else:
+            account.note_failure(message)
+        return True
+
     last_error = None
     last_uid = None
     last_429 = None
@@ -9114,7 +9131,7 @@ def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=No
                 # 不在已知清单里的也不能把错误原样甩回客户端——换号是默认，
                 # 全试完才交出去。
                 transient_hits += 1
-                account.note_failure("HTTP %d" % exc.code)
+                charge_account(account, "HTTP %d" % exc.code, unknown=False)
                 log("upstream %s for '%s', retrying (fails=%d)"
                     % (exc.code, model, account.fails))
                 if session_key and POOL:
@@ -9127,7 +9144,8 @@ def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=No
                 POOL.affinity.demote(session_key, account.uid)
             if is_transient(exc):
                 transient_hits += 1
-                account.note_unknown_failure("connection: %s" % type(exc).__name__)
+                charge_account(account, "connection: %s" % type(exc).__name__,
+                               unknown=True)
                 # 带上 UID：这一行同时是一次扣分（连续 3 次就把账号熔断 30
                 # 分钟），不写清楚是谁挨的这一下，事后只能看着一串 hiccup 猜
                 # 是哪几个账号被关掉、池子为什么突然空了。
@@ -9137,7 +9155,7 @@ def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=No
                 last_error = exc
                 time.sleep(min(0.6 * transient_hits, 2.0))
                 continue
-            account.note_unknown_failure(str(exc)[:120])
+            charge_account(account, str(exc)[:120], unknown=True)
             account.note_error(str(exc)[:120], cooldown=60, single_account=(total <= 1))
             last_error = exc
             continue
