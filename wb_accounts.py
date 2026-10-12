@@ -202,6 +202,8 @@ AUTH_TOKEN_PATH = "/v2/plugin/auth/token"
 LOGIN_ACCOUNT_PATH = "/v2/plugin/login/account"
 REFRESH_PATH = "/v2/plugin/auth/token/refresh"
 CHECKIN_PATH = "/v2/billing/meter/daily-checkin"
+# 只对 daily-checkin 成立：今天已经签过。上游把它回成 HTTP 400，别当成失败。
+CHECKIN_ALREADY_CODE = 10001
 GET_RESOURCE_PATH = "/v2/billing/meter/get-user-resource"
 RESOURCE_SUMMARY_PATH = "/billing/meter/get-user-resource-summary"
 RESOURCE_FREE_PACKAGES_PATH = "/billing/meter/get-user-resource-free-packages"
@@ -1488,27 +1490,34 @@ class Account(object):
         return res
 
     def _checkin_upstream(self):
-        """签到的实际请求；返回形状见 checkin。"""
+        """签到的实际请求；返回形状见 checkin。
+
+        「今天已经签过」上游回的是 HTTP 400 + code 10001，这不是失败：今天这次
+        签到的结局就是「已签到」。把它当失败记下来，面板会倒退回「今日未签到」。
+        """
         cfg = get_realm_config("cn")
         url = cfg["billing_upstream"] + CHECKIN_PATH
         headers = self.headers(purpose="billing")
         try:
             payload = http_json(url, data=b"{}", method="POST", headers=headers, timeout=15,
                                 proxy=self.proxy)
-            code = payload.get("code", -1)
-            msg = payload.get("msg") or "ok"
-            self.last_checkin = time.strftime("%Y-%m-%d %H:%M:%S")
-            if self.path and os.path.exists(os.path.dirname(self.path)):
-                self.save(os.path.dirname(self.path))
-            return {"ok": (code == 0 or code == 10001), "code": code, "msg": msg, "data": payload.get("data")}
         except urllib.error.HTTPError as exc:
             try:
-                body = json.loads(exc.read().decode("utf-8") or "{}")
-                return {"ok": False, "error": body.get("msg") or ("HTTP %d" % exc.code)}
+                payload = json.loads(exc.read().decode("utf-8") or "{}")
             except Exception:
-                return {"ok": False, "error": "HTTP %d" % exc.code}
+                payload = {}
+            if payload.get("code") != CHECKIN_ALREADY_CODE:
+                return {"ok": False, "error": payload.get("msg") or ("HTTP %d" % exc.code)}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+        code = payload.get("code", -1)
+        msg = payload.get("msg") or "ok"
+        self.last_checkin = time.strftime("%Y-%m-%d %H:%M:%S")
+        if self.path and os.path.exists(os.path.dirname(self.path)):
+            self.save(os.path.dirname(self.path))
+        return {"ok": (code == 0 or code == CHECKIN_ALREADY_CODE),
+                "already": code == CHECKIN_ALREADY_CODE,
+                "code": code, "msg": msg, "data": payload.get("data")}
 
     def report_activity(self):
         """国内版对话活跃上报：一条 /v2/report 点亮官方 growth 连登。

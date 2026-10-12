@@ -295,6 +295,30 @@ const check = (label, cond, extra) => {
         JSON.stringify(chipOf(out, '乙 · 国际')));
 
   console.log();
+  console.log('[6b] a later attempt cannot undo a success from earlier today');
+  window.VIEW_REALM = 'cn';
+  historyReply = () => ({rows: [
+    {ts: TODAY + 'T11:22:00+08:00', uid: 'cn-uid-0001', nickname: '甲 · 国内',
+     realm: 'cn', task: 'checkin', trigger: 'manual', ok: false,
+     message: '今天已签到，请明天再来'},
+    {ts: TODAY + 'T10:00:00+08:00', uid: 'cn-uid-0001', nickname: '甲 · 国内',
+     realm: 'cn', task: 'checkin', trigger: 'scheduler', ok: true, message: '签到成功'},
+    {ts: TODAY + 'T08:00:00+08:00', uid: 'cn-uid-0004', nickname: '丁 · 失败',
+     realm: 'cn', task: 'checkin', trigger: 'manual', ok: false,
+     message: '上游 500'},
+  ], total: 3, limit: 200, range: 'today', filters: {uid: '', task: '', result: ''}});
+  await api.loadActivityToday();
+  api.renderAccounts();
+  out = accountsOut();
+  check('甲 still reads as checked in, not as a failure',
+        (chipOf(out, '甲 · 国内') || '').includes('今日签到 · 成功'),
+        JSON.stringify(chipOf(out, '甲 · 国内')));
+  check('and an account that only ever failed still reads as failed',
+        (chipOf(out, '丁 · 失败') || '').includes('今日签到 · 失败'),
+        JSON.stringify(chipOf(out, '丁 · 失败')));
+  historyReply = todayReply;
+
+  console.log();
   console.log('[7] the surfaces the phone layout depends on are still there');
   const page = dashboardHtml();
   const modal = page.slice(page.indexOf('id="activityHistoryModal"'),

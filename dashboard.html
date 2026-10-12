@@ -4798,7 +4798,7 @@ async function triggerBuddyCheckin(btn){
     const res = r.results || [];
     if(!res.length) toast("未发现国内版账号", "warn");
     else {
-      const summary = res.map(x => (x.nickname||x.uid.slice(0,6)) + ": " + (x.ok ? "签到成功 (+100积分)" : (x.error||x.msg))).join("；");
+      const summary = res.map(x => (x.nickname||x.uid.slice(0,6)) + ": " + (x.ok ? (x.already ? "今日已签到" : "签到成功 (+100积分)") : (x.error||x.msg))).join("；");
       toast("Buddy 加油站签到: " + summary, res.some(x => x.ok) ? "ok" : "warn");
     }
     await loadAccounts(); await loadGrowthTasks();
@@ -5747,7 +5747,9 @@ function activityStatusChip(a){
     + esc(status.label + ' · ' + status.state) + '</span>';
 }
 
-// 今天的事件，按 uid 建表。rows 是最新在前，所以第一次见到的就是最近一次。
+// 今天的事件，按 uid 建表。rows 是最新在前，所以第一次见到的就是最近一次；
+// 但今天只要成功过一次就算完成——之后再点签到（上游回「已签到」）或一次失败，
+// 都不该把已经完成的一天倒退回「未完成」。
 // 读不到历史只是没有状态可显示：绝不能让它把账号区一起带坏。
 async function loadActivityToday(){
   try{
@@ -5756,7 +5758,8 @@ async function loadActivityToday(){
     const byUid = {};
     rows.forEach(row => {
       const uid = String((row && row.uid) || '');
-      if(uid && !byUid[uid]) byUid[uid] = row;
+      if(!uid) return;
+      if(!byUid[uid] || (!byUid[uid].ok && row.ok)) byUid[uid] = row;
     });
     ACTIVITY_TODAY = {byUid: byUid, error: '', loaded: true};
   }catch(e){
