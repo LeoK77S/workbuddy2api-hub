@@ -4803,7 +4803,7 @@ async function triggerBuddyCheckin(btn){
     const res = r.results || [];
     if(!res.length) toast("未发现国内版账号", "warn");
     else {
-      const summary = res.map(x => (x.nickname||x.uid.slice(0,6)) + ": " + (x.ok ? (x.already ? "今日已签到" : "签到成功 (+100积分)") : (x.error||x.msg))).join("；");
+      const summary = res.map(x => (x.nickname||x.uid.slice(0,6)) + ": " + (x.ok ? "签到成功 (+100积分)" : (x.error||x.msg))).join("；");
       toast("Buddy 加油站签到: " + summary, res.some(x => x.ok) ? "ok" : "warn");
     }
     await loadAccounts(); await loadGrowthTasks();

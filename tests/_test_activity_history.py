@@ -8,7 +8,6 @@ import calendar
 import datetime
 import importlib
 import inspect
-import io
 import json
 import os
 import re
@@ -17,7 +16,6 @@ import tempfile
 import threading
 import time
 import unittest
-import urllib.error
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -44,13 +42,6 @@ def _response(payload):
             return False
 
     return Response()
-
-
-def _http_error(status, body):
-    """一个带上游 JSON 正文的 HTTPError（上游的业务失败也走这条路）。"""
-    return urllib.error.HTTPError(
-        "https://upstream/v2/billing/meter/daily-checkin", status, "err", {},
-        io.BytesIO(json.dumps(body).encode("utf-8")))
 
 
 def _web_urlopen():
@@ -297,34 +288,6 @@ class RecordingTests(IsolatedCase):
         self.assertEqual(rows[-1]["trigger"], "scheduler")
         self.assertIn("活动未开始", rows[-1]["message"])
         self.assertEqual(self.latest()["ok"], False)
-
-    def test_already_checked_in_today_is_not_a_failure(self):
-        # 上游把「今天已签到」回成 HTTP 400 + code 10001，不是 200。当成失败
-        # 记下来，面板就会把今天已经签过的账号倒退回「今日未签到」。
-        account = self.account("cn", "cn-1")
-        with mock.patch.object(wb_accounts, "http_json", side_effect=_http_error(
-                400, {"code": 10001, "msg": "今天已签到，请明天再来"})):
-            res = account.checkin(trigger="manual")
-        self.assertTrue(res.get("ok"), res)
-        self.assertTrue(res.get("already"), res)
-        self.assertEqual(res.get("code"), 10001)
-        rows = self.rows()
-        self.assertEqual(len(rows), 1)
-        self.assertTrue(rows[0]["ok"], rows[0])
-        self.assertIn("今天已签到", rows[0]["message"])
-        # 今天这一次签到确实完成了，账号也不该再被判成「今天还没签」
-        self.assertFalse(account.can_checkin())
-
-    def test_a_genuine_http_error_is_still_a_failure(self):
-        account = self.account("cn", "cn-1")
-        with mock.patch.object(wb_accounts, "http_json", side_effect=_http_error(
-                400, {"code": 500, "msg": "签到失败：活动未开始"})):
-            res = account.checkin(trigger="manual")
-        self.assertFalse(res.get("ok"), res)
-        rows = self.rows()
-        self.assertEqual(len(rows), 1)
-        self.assertFalse(rows[0]["ok"])
-        self.assertIn("活动未开始", rows[0]["message"])
 
     def test_intl_daily_chat_success_and_failure_write_one_row_each(self):
         account = self.account("intl", "intl-1")
