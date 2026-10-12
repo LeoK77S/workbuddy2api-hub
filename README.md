@@ -357,6 +357,9 @@ export ANTHROPIC_API_KEY="你在看板设置中添加并绑定的API_Key"
 
 ### Unreleased
 
+- **修复「已签到被当成签到失败，面板倒退回『今日未签到』」**：上游对 `daily-checkin` 的「今天已经签过」回的是 HTTP 400 + `code 10001`，而 `_checkin_upstream()` 的 HTTPError 分支没看 code、一律记成失败——手动再点一次签到，账号卡片就从「今日已签到」退回「今日未签到」，活动历史里还多出一条假失败。现在 400 分支按 `code 10001` 判为「已签到」（`ok=True`、`already=True`，照常写 `lastCheckin`），其它 code 维持失败；面板侧的今日状态改为「今天成功过一次就算完成」，更晚的失败盖不掉已经完成的成果，签到 toast 也区分「今日已签到」与「签到成功 (+100积分)」。
+  - `tests/_test_activity_history.py` 补两条：400 + `code 10001` 记成成功且 `can_checkin()` 转假、真 400（`code 500`）仍是失败；`tests/_test_activity_history.js` 补 `[6b]`：更晚的失败盖不掉今天的成功，而一整天只有失败的账号仍判失败。
+
 已发布版本的完整记录（v1.4.5 ~ v1.7.1，含每版的 PR 归属）见 **[docs/CHANGELOG.md](docs/CHANGELOG.md)**。
 ## 七、致谢与引用声明 (Credits & References)
 
