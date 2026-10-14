@@ -134,6 +134,13 @@ MAX_LOG_DB_MAX_ROWS = 100_000_000
 MAX_LOG_DB_MAX_DAYS = 36500
 MAX_LOG_DB_MAX_BYTES = 100 * 1024 ** 3
 
+# 图片格式规范化：上游按图片「内容」判格式（把 BMP 字节标成 image/png 一样被拒，
+# code 11135），只认 png/jpeg/webp。客户端一旦把别的格式内联进消息历史，之后每一
+# 轮都会重放这条消息、每一轮都 400，只能开新会话绕开。打开后网关在转发前把能纯
+# 标准库可靠转换的格式（目前只有 BMP）转成 PNG。缺失键读作关：它会改写请求体里
+# 的图片字节，老安装保持原样、请求体一个字节都不动。
+IMAGE_FORMAT_NORMALIZATION_ENABLED_KEY = "image_format_normalization_enabled"
+
 _lock = threading.RLock()
 
 
@@ -1333,6 +1340,32 @@ def set_log_db_enabled(accounts_dir, enabled):
     with _lock:
         data = load(accounts_dir)
         data[LOG_DB_ENABLED_KEY] = enabled
+        save(accounts_dir, data)
+    return enabled
+
+
+def image_format_normalization_enabled(accounts_dir):
+    """Whether inline images the upstream cannot read are converted to PNG.
+
+    Off unless the operator turns it on. The upstream decides an image's format
+    from its bytes, not from the data URL's media type - a BMP payload labelled
+    image/png is rejected just the same - and it accepts only png/jpeg/webp
+    (code 11135). A client that inlines, say, a BMP thumbnail leaves that
+    message in the history, so every later turn of the conversation is refused
+    until it is restarted. With the switch on the gateway rewrites the formats
+    it can decode with the standard library (BMP today) to PNG before the
+    request leaves. It rewrites bytes inside the request body, so an install
+    that predates the switch sends exactly what it always did.
+    """
+    return load(accounts_dir).get(IMAGE_FORMAT_NORMALIZATION_ENABLED_KEY) is True
+
+
+def set_image_format_normalization_enabled(accounts_dir, enabled):
+    """Persist the image-format normalization switch. Returns the boolean."""
+    enabled = bool(enabled)
+    with _lock:
+        data = load(accounts_dir)
+        data[IMAGE_FORMAT_NORMALIZATION_ENABLED_KEY] = enabled
         save(accounts_dir, data)
     return enabled
 

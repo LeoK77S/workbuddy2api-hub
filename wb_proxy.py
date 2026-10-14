@@ -14,6 +14,7 @@ Launchers: start-wb-proxy.bat / start-wb-proxy-lan.bat on Windows,
 start-wb-proxy.command (or ./start-wb-proxy.sh) on macOS/Linux.
 """
 import argparse
+import base64
 import bisect
 import hashlib
 import heapq
@@ -51,12 +52,14 @@ except ValueError:
     MAX_CONCURRENT_CHAT = CHAT_SLOTS_FLOOR
 CHAT_SLOT_WAIT_SECONDS = float(os.environ.get("WB_CHAT_SLOT_WAIT", 30))
 import socket
+import struct
 import sys
 import threading
 import time
 import urllib.error
 import urllib.request
 import uuid
+import zlib
 import wb_accounts
 import wb_activity
 import wb_atrest
@@ -9766,6 +9769,8 @@ def runtime_settings_view():
         "log_db_max_rows": wb_settings.log_db_max_rows(ACCOUNTS_DIR),
         "log_db_max_days": wb_settings.log_db_max_days(ACCOUNTS_DIR),
         "log_db_max_bytes": wb_settings.log_db_max_bytes(ACCOUNTS_DIR),
+        "image_format_normalization_enabled":
+            wb_settings.image_format_normalization_enabled(ACCOUNTS_DIR),
         "accounts_collapsed": wb_settings.accounts_collapsed(ACCOUNTS_DIR),
         "accounts_separate_tab": wb_settings.accounts_separate_tab(ACCOUNTS_DIR),
         "key_before_hidden": wb_settings.key_before_hidden(ACCOUNTS_DIR),
@@ -10942,6 +10947,220 @@ def sanitize_messages(messages):
 
 
 # ---------------------------------------------------------------------------
+# Inline image format normalization
+#
+# The upstream identifies an image by its *bytes*, not by the media type on the
+# data URL - a BMP payload labelled image/png is refused just the same - and it
+# reads only png/jpeg/webp. Once a client inlines anything else (a DWG thumbnail
+# extracted as BMP, say), that message stays in the history, so every later turn
+# of the conversation is answered 400 / code 11135 ("Please start a new
+# conversation, replace the image, and try again") and the only way out is a new
+# conversation.
+#
+# With the switch on (wb_settings.image_format_normalization_enabled, off by
+# default) the gateway rewrites the formats it can decode with the standard
+# library before the request leaves. Today that is BMP, decoded and re-encoded
+# as PNG right here: the project ships zero pip dependencies, so there is no
+# Pillow to lean on and none may be added.
+#
+# Everything else - GIF, TIFF, SVG, an http(s) URL - is passed through exactly
+# as it arrived. A format this code cannot handle must never fail the request:
+# the upstream answers as it always did, which is strictly better than the
+# gateway inventing a new error.
+# ---------------------------------------------------------------------------
+_IMAGE_DATA_URL_RE = re.compile(
+    r"^data:image/([a-zA-Z0-9.+-]+)((?:;[^,]*)?),(.*)$", re.DOTALL)
+# Media types the upstream reads as-is. A payload that really is one of these is
+# never touched.
+_IMAGE_UPSTREAM_FORMATS = frozenset(("png", "jpeg", "jpg", "webp"))
+# The BMP media types seen in the wild. Only a hint that the payload is worth
+# trying - bmp_to_png() still has to recognise the bytes.
+_IMAGE_BMP_FORMATS = frozenset(("bmp", "dib", "x-ms-bmp", "x-bmp"))
+# base64("BM")[:2]. The upstream reads the bytes rather than the media type, so
+# a BMP payload is worth converting even under a type it reads - a client that
+# labels an image by its file extension sends BMP content as "image/png" and the
+# upstream refuses it all the same. Two characters are enough to tell, and a
+# genuine PNG/JPEG/WEBP (iVBOR… / /9j/… / UklGR…) never starts with them.
+_BMP_BASE64_PREFIX = base64.b64encode(b"BM")[:2].decode("ascii")
+
+
+def _png_chunk(tag, payload):
+    """One PNG chunk: length, type, payload, CRC32 over type+payload."""
+    return (struct.pack(">I", len(payload)) + tag + payload
+            + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF))
+
+
+def encode_png(width, height, scanlines):
+    """Encode 8-bit truecolour scanlines (each already filter-prefixed) as PNG."""
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n"
+            + _png_chunk(b"IHDR", ihdr)
+            + _png_chunk(b"IDAT", zlib.compress(b"".join(scanlines), 6))
+            + _png_chunk(b"IEND", b""))
+
+
+def bmp_to_png(data):
+    """Decode an uncompressed 24/32-bpp BMP and return it re-encoded as PNG.
+
+    Returns None for anything this narrow decoder does not handle - another bit
+    depth, a compressed or bitfield variant, a truncated file - so the caller
+    leaves the original bytes alone instead of emitting a broken image. Only the
+    shapes a screenshot or a thumbnail extractor actually produces are covered,
+    which is the point: a partial decoder that guesses is worse than one that
+    declines.
+    """
+    if not isinstance(data, (bytes, bytearray)) or len(data) < 54:
+        return None
+    if data[0:2] != b"BM":
+        return None
+    try:
+        pixel_offset = struct.unpack_from("<I", data, 10)[0]
+        dib_size = struct.unpack_from("<I", data, 14)[0]
+        if dib_size < 40:
+            return None
+        width, height = struct.unpack_from("<ii", data, 18)
+        planes, bpp = struct.unpack_from("<HH", data, 26)
+        compression = struct.unpack_from("<I", data, 30)[0]
+    except struct.error:
+        return None
+    if planes != 1 or compression != 0 or bpp not in (24, 32):
+        return None
+    if width <= 0 or height == 0:
+        return None
+    # A negative height means the rows are stored top-down; a positive one means
+    # bottom-up. Rows are padded out to a 4-byte boundary.
+    top_down = height < 0
+    height = abs(height)
+    row_stride = ((width * bpp + 31) // 32) * 4
+    if pixel_offset + row_stride * height > len(data):
+        return None
+    step = bpp // 8
+    scanlines = []
+    for y in range(height):
+        src_y = y if top_down else height - 1 - y
+        start = pixel_offset + src_y * row_stride
+        row = bytearray(data[start:start + width * step])
+        if bpp == 24:
+            row[0::3], row[2::3] = row[2::3], row[0::3]     # BGR -> RGB
+        else:
+            # BGRA -> RGB. The fourth byte is padding in most BMPs, so honouring
+            # it as alpha would blank out every pixel where it happens to be 0.
+            rgb = bytearray(width * 3)
+            rgb[0::3] = row[2::4]
+            rgb[1::3] = row[1::4]
+            rgb[2::3] = row[0::4]
+            row = rgb
+        scanlines.append(b"\x00" + bytes(row))
+    return encode_png(width, height, scanlines)
+
+
+def normalize_image_data_url(url):
+    """Rewrite one inline image data URL to PNG, or return None to leave it.
+
+    None means "pass through": already a format the upstream reads, not a data
+    URL at all, a format with no standard-library decoder, or a payload that
+    failed to decode. The caller must read None as "unchanged", never as an
+    error - this feature is not allowed to become a new failure mode.
+    """
+    if not isinstance(url, str) or not url.startswith("data:image/"):
+        return None
+    match = _IMAGE_DATA_URL_RE.match(url)
+    if not match:
+        return None
+    fmt = match.group(1).strip().lower()
+    if "base64" not in match.group(2).lower():
+        return None
+    payload = match.group(3)
+    if fmt not in _IMAGE_BMP_FORMATS and not payload.startswith(_BMP_BASE64_PREFIX):
+        if fmt not in _IMAGE_UPSTREAM_FORMATS:
+            log("image format normalization: image/%s left untouched "
+                "(no standard-library decoder)" % fmt)
+        return None
+    try:
+        raw = base64.b64decode(payload, validate=False)
+    except Exception as exc:
+        log("image format normalization failed: image/%s base64 decode: %s"
+            % (fmt, exc))
+        return None
+    try:
+        png = bmp_to_png(raw)
+    except Exception as exc:
+        log("image format normalization failed: image/%s decode: %s" % (fmt, exc))
+        return None
+    if not png:
+        log("image format normalization: image/%s not convertible "
+            "(unsupported BMP variant), passing through" % fmt)
+        return None
+    log("image format normalization: image/%s -> image/png (%d -> %d bytes)"
+        % (fmt, len(raw), len(png)))
+    return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
+
+def _image_part_slot(part):
+    """Where one content part keeps its image URL, or None if it has none.
+
+    Returns (outer_key, inner_key): the URL is part[outer_key] when inner_key is
+    None, and part[outer_key][inner_key] otherwise. Covers the OpenAI shape this
+    gateway emits everywhere ({"type": "image_url", "image_url": {"url": ...}}),
+    the same key carrying a bare string, and a plain {"url": ...} part.
+    """
+    if not isinstance(part, dict):
+        return None
+    for key in ("image_url", "url"):
+        value = part.get(key)
+        if isinstance(value, dict):
+            if isinstance(value.get("url"), str):
+                return (key, "url")
+        elif isinstance(value, str):
+            return (key, None)
+    return None
+
+
+def normalize_image_formats(messages):
+    """Rewrite inline images the upstream cannot read to PNG (see above).
+
+    Copy-on-write: a message and its content list are only rebuilt when one of
+    its images actually changed, so a request with nothing to convert comes back
+    as the very same objects and pays nothing beyond the scan.
+    """
+    if not isinstance(messages, list):
+        return messages
+    out = None
+    for index, message in enumerate(messages):
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        new_content = None
+        for pos, part in enumerate(content):
+            slot = _image_part_slot(part)
+            if slot is None:
+                continue
+            outer, inner = slot
+            current = part[outer] if inner is None else part[outer][inner]
+            converted = normalize_image_data_url(current)
+            if converted is None:
+                continue
+            if new_content is None:
+                new_content = list(content)
+            new_part = dict(part)
+            if inner is None:
+                new_part[outer] = converted
+            else:
+                new_part[outer] = dict(part[outer])
+                new_part[outer][inner] = converted
+            new_content[pos] = new_part
+        if new_content is not None:
+            if out is None:
+                out = list(messages)
+            new_message = dict(message)
+            new_message["content"] = new_content
+            out[index] = new_message
+    return messages if out is None else out
+
+
+# ---------------------------------------------------------------------------
 # Tool-call pairing repair
 # ---------------------------------------------------------------------------
 def _empty_content(value):
@@ -11973,6 +12192,12 @@ def build_upstream_body(payload):
     messages = backfill_reasoning_content(
         messages, model, thinking_enabled=thinking_enabled
     )
+    # Inline images the upstream would refuse (it reads the bytes, so a BMP
+    # labelled image/png is rejected the same way, code 11135) are rewritten to
+    # PNG before the body is built. Off by default, and a no-op - not even a
+    # copy - for a request that carries no such image.
+    if wb_settings.image_format_normalization_enabled(ACCOUNTS_DIR):
+        messages = normalize_image_formats(messages)
     if not messages or (messages[0].get("role") != "system"):
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
     body = dict(payload)
@@ -16952,6 +17177,16 @@ class Handler(BaseHTTPRequestHandler):
                     log_db_touched = True
             if log_db_touched:
                 apply_log_db_settings()
+        if "image_format_normalization_enabled" in payload:
+            # 图片格式规范化：与 remaining_priority_enabled 同一形状——严格
+            # JSON 布尔，字符串 "false" 会是真值。
+            raw = payload.get("image_format_normalization_enabled")
+            if not isinstance(raw, bool):
+                return self._error(
+                    400, "image_format_normalization_enabled must be true or false",
+                    "invalid_request_error")
+            wb_settings.set_image_format_normalization_enabled(ACCOUNTS_DIR, raw)
+            reply["image_format_normalization_enabled"] = raw
         if "accounts_collapsed" in payload:
             # A disclosure state, and the only thing this branch may touch: the
             # submission carries just this key, so the settings it does not name
