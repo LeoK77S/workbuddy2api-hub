@@ -3972,6 +3972,45 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
       <section>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
           <div>
+            <h2 style="margin:0">重试链总预算 <em id="setRetryBudgetState"></em></h2>
+            <div style="font-size:12px;color:var(--dim);margin-top:4px">
+              一次请求从第一次尝试到最后一次尝试的总时长上限（秒），含中间的退避等待。每个调用方都有自己的截止时间（New API 的响应头超时 60 秒、OmniRoute 的首字节预算 45 秒），链比它活得久就是白跑：调用方已经走了，剩下的尝试就算成功也没人收，还占着一个在途槽位。预算花完时——最后一下是 429 就仍回 429，否则回 504 加 Retry-After，让调用方还有余量换渠道。默认 0 = 不限（老安装行为不变）；建议按调用方的截止时间设成 40 左右。
+            </div>
+            <div style="font-size:12px;color:var(--warn);margin-top:4px">
+              调小的代价：上游偶尔确实慢的正常请求会被提前判失败、换账号重试，多消耗一次额度。建议不大于调用方的截止时间（约 40–50 秒）。
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:40px">
+              <input id="setRetryBudget" type="number" min="0" step="1" style="width:90px">
+              秒
+            </label>
+            <button onclick="saveRetryBudget(this)">保存</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div>
+            <h2 style="margin:0">首次尝试超时 <em id="setFirstAttemptTimeoutState"></em></h2>
+            <div style="font-size:12px;color:var(--dim);margin-top:4px">
+              第一次尝试等上游响应头的上限（秒）：先用小钱试一次，失败后还有余量在预算内换账号再试一次。默认 0 = 不分级（每次尝试都用上面的「上游响应头超时」）；建议 15。
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:40px">
+              <input id="setFirstAttemptTimeout" type="number" min="0" step="1" style="width:90px">
+              秒
+            </label>
+            <button onclick="saveFirstAttemptTimeout(this)">保存</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div>
             <h2 style="margin:0">日志落库 <em id="setLogDbState"></em></h2>
             <div style="font-size:12px;color:var(--dim);margin-top:4px">
               默认关闭：日志只留在内存（最新 2000 条，重启即失），与上游一致。开启后每条日志追加写入
@@ -8954,6 +8993,32 @@ async function loadSettings(showToast){
         headerTimeoutState.textContent = headerTimeoutDefault ? '(默认 120 秒)' : '(' + headerTimeout + ' 秒)';
         headerTimeoutState.style.color = headerTimeoutDefault ? 'var(--dim)' : 'var(--accent2)';
       }
+      // 重试链总预算与首次尝试超时：默认都是 0（关掉），0 要明确标成「默认」，
+      // 否则 0 看起来像没配。
+      const retryBudget = (data.upstream || {}).retry_budget_seconds;
+      const retryBudgetInput = document.getElementById('setRetryBudget');
+      if(retryBudgetInput){
+        retryBudgetInput.value = (typeof retryBudget === 'number') ? retryBudget : 0;
+      }
+      const retryBudgetState = document.getElementById('setRetryBudgetState');
+      if(retryBudgetState){
+        const retryBudgetOff = (typeof retryBudget !== 'number') || retryBudget === 0;
+        retryBudgetState.textContent = retryBudgetOff ? '(默认：不限)' : '(' + retryBudget + ' 秒)';
+        retryBudgetState.style.color = retryBudgetOff ? 'var(--dim)' : 'var(--accent2)';
+      }
+      const firstAttemptTimeout = (data.upstream || {}).first_attempt_timeout_seconds;
+      const firstAttemptInput = document.getElementById('setFirstAttemptTimeout');
+      if(firstAttemptInput){
+        firstAttemptInput.value = (typeof firstAttemptTimeout === 'number') ? firstAttemptTimeout : 0;
+      }
+      const firstAttemptState = document.getElementById('setFirstAttemptTimeoutState');
+      if(firstAttemptState){
+        const firstAttemptOff = (typeof firstAttemptTimeout !== 'number')
+          || firstAttemptTimeout === 0;
+        firstAttemptState.textContent = firstAttemptOff ? '(默认：不分级)'
+          : '(' + firstAttemptTimeout + ' 秒)';
+        firstAttemptState.style.color = firstAttemptOff ? 'var(--dim)' : 'var(--accent2)';
+      }
       const logDbEnabled = data.log_db_enabled === true;
       const logDbEnabledInput = document.getElementById('setLogDbEnabled');
       if(logDbEnabledInput) logDbEnabledInput.checked = logDbEnabled;
@@ -9638,6 +9703,37 @@ async function saveHeaderTimeout(btn){
   } finally {
     if(btn) btn.disabled = false;
   }
+}
+
+/* 重试链总预算与首次尝试超时。这两个值 0 是合法的（= 关掉该行为），所以只拦
+   负数、小数与非数字。 */
+async function saveUpstreamSeconds(btn, inputId, key, label){
+  const el = document.getElementById(inputId);
+  const value = Math.floor(Number(el && el.value));
+  if(!isFinite(value) || value < 0){
+    toast('请输入不小于 0 的整数秒（0 表示关闭）', 'bad');
+    return;
+  }
+  if(btn) btn.disabled = true;
+  try {
+    const patch = {}; patch[key] = value;
+    await postJSON('/settings/save', {upstream: patch});
+    toast('已保存：' + label + ' ' + (value === 0 ? '（已关闭）' : value + ' 秒'), 'ok');
+    loadSettings();
+  } catch(e) {
+    toast('保存失败: ' + e.message, 'bad');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+function saveRetryBudget(btn){
+  return saveUpstreamSeconds(btn, 'setRetryBudget', 'retry_budget_seconds', '重试链总预算');
+}
+
+function saveFirstAttemptTimeout(btn){
+  return saveUpstreamSeconds(btn, 'setFirstAttemptTimeout', 'first_attempt_timeout_seconds',
+                             '首次尝试超时');
 }
 
 /* ---- 日志落库 ----
