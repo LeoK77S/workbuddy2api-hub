@@ -133,7 +133,7 @@ python tests/run_all.py            # 全部套件
 python tests/run_all.py realm      # 只跑名字里含 realm 的
 ```
 
-- 146 个套件：108 个 Python + 38 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
+- 147 个套件：109 个 Python + 38 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
 - `tests/_mobile_check.py` 是独立的 Playwright 手机/桌面布局检查器（需自行安装 Playwright），按需手动运行，不在上面的套件集里。
 - CI（`.github/workflows/tests.yml`）跑同一条命令：Ubuntu 上 python 3.9 与 3.12（3.9 是本项目声称的最低版本），Windows 上 python 3.12；推送 `v*` tag 时额外断言 **tag == 源码版本**（`-ci` 演练 tag 豁免）。
 
@@ -362,6 +362,8 @@ export ANTHROPIC_API_KEY="你在看板设置中添加并绑定的API_Key"
 <!-- 发版时：把下面的 Unreleased 段落整理成新版本号（## vX.Y.Z），整体移入 docs/CHANGELOG.md 顶部 -->
 
 ### Unreleased
+
+- **图片格式规范化（默认关）**：上游按图片**内容**判格式（把 BMP 字节标成 `image/png` 一样被拒），只认 png/jpeg/webp。客户端一旦把别的格式内联进消息（实测：处理 DWG 图纸时提取出的内嵌缩略图是 BMP），这条消息就留在历史里，之后每一轮都返回 `400 code 11135`（"Please start a new conversation, replace the image, and try again."），只能靠开新会话绕开。打开 `image_format_normalization_enabled` 后，网关在转发前把能用**标准库**可靠转换的格式（目前是 BMP：手写文件头/DIB 头/BGR 像素解码，`zlib` + `struct` 手写 PNG 编码，零新增依赖）转成 PNG；转不了的格式（gif/tiff/svg）与非 data URL 外链一律原样放行，任何解码/编码异常都吞掉透传——这个功能本身绝不会成为新的故障点。已是 png/jpeg/webp 的图片直接跳过（只比对 base64 前两个字符，不做解码）；反过来，标成 `image/png` 的 BMP 内容同样会被转换，因为上游看的本来就是内容。无图请求也不多付一次扫描。设置页有开关与「保存」，走 `/settings/save` 的严格布尔校验；英繁词典一并补齐。新增 `tests/_test_image_format_normalization.py`。
 
 已发布版本的完整记录（v1.4.5 ~ v1.7.4，含每版的 PR 归属）见 **[docs/CHANGELOG.md](docs/CHANGELOG.md)**。
 
