@@ -314,9 +314,14 @@ class RuntimeTrimTests(unittest.TestCase):
                     imported.add(node.module.split(".")[0])
         local = {os.path.basename(p)[:-3] for p in glob.glob(os.path.join(ROOT, "wb_*.py"))}
         # sys / time and friends are compiled into python312.dll, so the trim
-        # cannot remove them and they have no Lib/ file to check.
+        # cannot remove them and they have no Lib/ file to check. The modules
+        # BUILTIN_EXTENSION_MODULES names are built into python312.dll the same
+        # way: a Linux runner has them as lib-dynload shared objects instead, so
+        # sys.builtin_module_names cannot see them from here.
         needed = sorted(m for m in imported
-                        if m not in local and m not in sys.builtin_module_names)
+                        if m not in local
+                        and m not in sys.builtin_module_names
+                        and m not in portable_runtime.BUILTIN_EXTENSION_MODULES)
         self.assertTrue(needed)
         covered = set(portable_runtime.REQUIRED_FILES)
         missing = [m for m in needed

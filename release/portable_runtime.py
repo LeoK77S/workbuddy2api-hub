@@ -82,6 +82,7 @@ REQUIRED_FILES = (
     "Lib/difflib.py", "Lib/fnmatch.py", "Lib/getpass.py", "Lib/gzip.py", "Lib/heapq.py",
     "Lib/ipaddress.py", "Lib/queue.py", "Lib/shutil.py", "Lib/random.py",
     "Lib/subprocess.py", "Lib/threading.py", "Lib/sqlite3/__init__.py",
+    "Lib/struct.py",
     "Lib/html/__init__.py", "Lib/http/__init__.py", "Lib/http/client.py",
     "Lib/concurrent/__init__.py", "Lib/concurrent/futures/__init__.py",
     "Lib/ctypes/__init__.py", "Lib/collections/__init__.py", "Lib/re/__init__.py",
@@ -90,6 +91,14 @@ REQUIRED_FILES = (
     "DLLs/_sqlite3.pyd",
     "DLLs/libffi-8.dll", "DLLs/libssl-3-x64.dll", "DLLs/libcrypto-3-x64.dll",
 )
+
+# Extension modules this build compiles into python312.dll: the trim has no file
+# to keep for them, so they cannot appear in REQUIRED_FILES even though the
+# gateway imports them. `sys.builtin_module_names` cannot decide that either -
+# it describes the interpreter running the check, and on Linux (where the suites
+# also run) zlib is a shared object in lib-dynload instead. The DROP_DLLS note
+# above already records the Windows half of this.
+BUILTIN_EXTENSION_MODULES = frozenset(("zlib",))
 
 # Absent from the shipped package, so they must stay absent here too.
 FORBIDDEN_PATHS = (
