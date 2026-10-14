@@ -1274,6 +1274,11 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '传输类失败与 502/503/504 改记在「出口」而不是账号上：同一个出口的账号共用一个计数器，退避是秒级（1 秒起、翻倍、封顶 15 秒、带抖动），任一次成功即清零；账号级熔断（30 分钟起、翻倍到 6 小时）不再被一次链路抖动触发。500 与 401/403/429 仍走原路径。默认关闭。': 'Transport failures and 502/503/504 are charged to the egress instead of the account: accounts sharing one egress share one counter, the backoff is seconds-scale (1s, doubling, capped at 15s, jittered) and any success clears it; the account breaker (30 minutes, doubling to 6h) is no longer tripped by a link hiccup. 500 and 401/403/429 keep their old paths. Off by default.',
     '已启用：出口级瞬时失败退避': 'On: egress-level transient backoff',
     '已关闭出口级瞬时失败退避': 'Egress-level transient backoff off',
+    '图片格式规范化': 'Inline image format normalization',
+    '启用图片格式规范化': 'Enable image format normalization',
+    '上游按图片内容判格式、只认 png/jpeg/webp：客户端一旦把别的格式（例如图纸里提取出的 BMP 缩略图）内联进消息，这条消息会留在历史里，之后每一轮都返回 400（code 11135），只能开新会话绕开。打开后网关在转发前把能用标准库转换的格式（目前是 BMP）转成 PNG；转不了的格式与 http(s) 外链一律原样放行，绝不会因为这个功能让请求失败。默认关闭。': 'The upstream reads an image\'s format from its bytes and accepts only png/jpeg/webp: once a client inlines anything else (a BMP thumbnail extracted from a drawing, say), that message stays in the history and every later turn is answered 400 (code 11135) until a new conversation is started. With this on, the gateway converts the formats it can decode with the standard library (BMP today) to PNG before forwarding; formats it cannot convert, and http(s) links, pass through untouched, so the feature can never fail a request. Off by default.',
+    '已启用：图片格式规范化': 'On: inline image format normalization',
+    '已关闭图片格式规范化': 'Inline image format normalization off',
     '上游响应头超时': 'Upstream response-header timeout',
     '单次尝试等上游返回响应头的上限（秒）。拿到响应头之前网关不会向客户端发出任何字节，所以这个值就是客户端要空等的时长：设得比客户端的首字节预算还大时，客户端会先断开（表现为 499 / 首字节迟迟不返回），而网关仍会按这个上限继续换账号重试。默认 120。': 'How long one attempt may wait for the upstream to send response headers (seconds). Nothing is sent to the client before those headers arrive, so this is exactly how long the client can end up waiting: set it above the client\'s first-byte budget and the client disconnects first (seen as a 499, or a first byte that never comes) while the gateway keeps retrying on the next account under the same limit. Default 120.',
     '调小的代价：上游偶尔确实算得慢的正常请求会被提前判失败、换账号重试，多消耗一次额度。建议不高于客户端的首字节预算。': 'The cost of lowering it: a normal request the upstream genuinely takes a long time to compute is failed early and retried on another account, spending one more unit of quota. Prefer a value no higher than the client\'s first-byte budget.',
@@ -2266,6 +2271,11 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     "传输类失败与 502/503/504 改记在「出口」而不是账号上：同一个出口的账号共用一个计数器，退避是秒级（1 秒起、翻倍、封顶 15 秒、带抖动），任一次成功即清零；账号级熔断（30 分钟起、翻倍到 6 小时）不再被一次链路抖动触发。500 与 401/403/429 仍走原路径。默认关闭。": "傳輸類失敗與 502/503/504 改記在「出口」而不是帳號上：同一個出口的帳號共用一個計數器，退避是秒級（1 秒起、翻倍、封頂 15 秒、帶抖動），任一次成功即清零；帳號級熔斷（30 分鐘起、翻倍到 6 小時）不再被一次鏈路抖動觸發。500 與 401/403/429 仍走原路徑。預設關閉。",
     "已启用：出口级瞬时失败退避": "已啟用：出口級瞬時失敗退避",
     "已关闭出口级瞬时失败退避": "已關閉出口級瞬時失敗退避",
+    "图片格式规范化": "圖片格式正規化",
+    "启用图片格式规范化": "啟用圖片格式正規化",
+    "上游按图片内容判格式、只认 png/jpeg/webp：客户端一旦把别的格式（例如图纸里提取出的 BMP 缩略图）内联进消息，这条消息会留在历史里，之后每一轮都返回 400（code 11135），只能开新会话绕开。打开后网关在转发前把能用标准库转换的格式（目前是 BMP）转成 PNG；转不了的格式与 http(s) 外链一律原样放行，绝不会因为这个功能让请求失败。默认关闭。": "上游按圖片內容判格式、只認 png/jpeg/webp：用戶端一旦把別的格式（例如圖紙裡擷取出的 BMP 縮圖）內聯進訊息，這條訊息會留在歷史裡，之後每一輪都回 400（code 11135），只能開新對話繞開。開啟後閘道在轉發前把能用標準庫轉換的格式（目前是 BMP）轉成 PNG；轉不了的格式與 http(s) 外鏈一律原樣放行，絕不會因為這個功能讓請求失敗。預設關閉。",
+    "已启用：图片格式规范化": "已啟用：圖片格式正規化",
+    "已关闭图片格式规范化": "已關閉圖片格式正規化",
     "上游响应头超时": "上游回應標頭逾時",
     "单次尝试等上游返回响应头的上限（秒）。拿到响应头之前网关不会向客户端发出任何字节，所以这个值就是客户端要空等的时长：设得比客户端的首字节预算还大时，客户端会先断开（表现为 499 / 首字节迟迟不返回），而网关仍会按这个上限继续换账号重试。默认 120。": "單次嘗試等上游回傳回應標頭的上限（秒）。拿到回應標頭之前閘道不會向客戶端發出任何位元組，所以這個值就是客戶端要空等的時長：設得比客戶端首位元組預算還大時，客戶端會先斷開（表現為 499 / 首位元組遲遲不返回），而閘道仍會按這個上限繼續換帳號重試。預設 120。",
     "调小的代价：上游偶尔确实算得慢的正常请求会被提前判失败、换账号重试，多消耗一次额度。建议不高于客户端的首字节预算。": "調小的代價：上游偶爾確實算得慢的正常請求會被提前判失敗、換帳號重試，多消耗一次額度。建議不高於客戶端的首位元組預算。",
@@ -3941,6 +3951,24 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
               天
             </label>
             <button onclick="saveUsageKeep(this)">保存</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div>
+            <h2 style="margin:0">图片格式规范化 <em id="setImageFormatNormState"></em></h2>
+            <div style="font-size:12px;color:var(--dim);margin-top:4px">
+              上游按图片内容判格式、只认 png/jpeg/webp：客户端一旦把别的格式（例如图纸里提取出的 BMP 缩略图）内联进消息，这条消息会留在历史里，之后每一轮都返回 400（code 11135），只能开新会话绕开。打开后网关在转发前把能用标准库转换的格式（目前是 BMP）转成 PNG；转不了的格式与 http(s) 外链一律原样放行，绝不会因为这个功能让请求失败。默认关闭。
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;min-height:40px">
+              <input id="setImageFormatNorm" type="checkbox" style="width:16px;height:16px">
+              启用图片格式规范化
+            </label>
+            <button onclick="saveImageFormatNorm(this)">保存</button>
           </div>
         </div>
       </section>
@@ -8937,6 +8965,14 @@ async function loadSettings(showToast){
         egressBackoffState.textContent = egressBackoff ? '(已启用)' : '(未启用)';
         egressBackoffState.style.color = egressBackoff ? 'var(--accent2)' : 'var(--dim)';
       }
+      const imageFormatNorm = data.image_format_normalization_enabled === true;
+      const imageFormatNormInput = document.getElementById('setImageFormatNorm');
+      if(imageFormatNormInput) imageFormatNormInput.checked = imageFormatNorm;
+      const imageFormatNormState = document.getElementById('setImageFormatNormState');
+      if(imageFormatNormState){
+        imageFormatNormState.textContent = imageFormatNorm ? '(已启用)' : '(未启用)';
+        imageFormatNormState.style.color = imageFormatNorm ? 'var(--accent2)' : 'var(--dim)';
+      }
       // 上游响应头超时：没改过时后端给的就是默认 120，所以「等于 120」按默认态
       // 显示，只有被改过才标出实际秒数。
       const headerTimeout = (data.upstream || {}).header_timeout_seconds;
@@ -9615,6 +9651,22 @@ async function saveUsageKeep(btn){
     if(btn) btn.disabled = false;
   }
 }
+
+async function saveImageFormatNorm(btn){
+  const el = document.getElementById('setImageFormatNorm');
+  const value = !!(el && el.checked);
+  if(btn) btn.disabled = true;
+  try {
+    await postJSON('/settings/save', {image_format_normalization_enabled: value});
+    toast(value ? '已启用：图片格式规范化' : '已关闭图片格式规范化', 'ok');
+    loadSettings();
+  } catch(e) {
+    toast('保存失败: ' + e.message, 'bad');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
 /* 上游响应头超时。后端只接受 >=1 的整数秒，所以先把输入收成整数再发：空值、
    小数、非数字就地拦下，而不是送上去换一个 400 回来。 */
 async function saveHeaderTimeout(btn){
