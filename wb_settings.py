@@ -1090,9 +1090,22 @@ def set_ui_language(accounts_dir, value):
 UPSTREAM_DEFAULTS = {
     "header_timeout_seconds": 120,
     "idle_timeout_seconds": 300,
+    # 重试链总预算（秒）：一次请求从第一次尝试到最后一次尝试的时长上限。每个
+    # 调用方都有自己的截止时间（New API 的响应头超时 60s、OmniRoute 的首字节
+    # 预算 45s），链比它活得久就是纯浪费——调用方已经走了，剩下的尝试就算成功
+    # 也没人收，还白占一个 in-flight 槽位。0 = 不限（默认，老安装行为不变）；
+    # 建议按调用方的截止时间设成 40 左右。
+    "retry_budget_seconds": 0,
+    # 第一次尝试的响应头超时（秒）：先用小钱试一次，失败后还有余量在预算内再
+    # 试一次。0 = 不分级（默认，每次尝试都用 header_timeout_seconds）。
+    "first_attempt_timeout_seconds": 0,
     "device_token": "",
     "device_token_file": "",
 }
+
+# 这两个可以取 0（= 关闭该行为），socket 超时不行，所以校验与归一分开走。
+UPSTREAM_ZEROABLE_INTS = ("retry_budget_seconds", "first_attempt_timeout_seconds")
+UPSTREAM_MAX_SECONDS = 3600
 
 
 def validate_upstream_patch(raw):
@@ -1105,6 +1118,14 @@ def validate_upstream_patch(raw):
             if value < 1:
                 raise ValueError("%s cannot be less than 1" % key)
             out[key] = value
+        elif key in UPSTREAM_ZEROABLE_INTS:
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError("%s must be a whole number of seconds" % key)
+            if value < 0:
+                raise ValueError("%s cannot be negative" % key)
+            if value > UPSTREAM_MAX_SECONDS:
+                raise ValueError("%s cannot exceed %d" % (key, UPSTREAM_MAX_SECONDS))
+            out[key] = value
         elif key in ("device_token", "device_token_file"):
             if not isinstance(value, str):
                 raise ValueError("%s must be a string" % key)
@@ -1115,7 +1136,7 @@ def validate_upstream_patch(raw):
 
 
 def upstream_config(accounts_dir):
-    """Chat socket timeouts and the optional X-Device-Token source."""
+    """Chat socket timeouts, the retry-chain budget and the X-Device-Token source."""
     stored = load(accounts_dir).get("upstream")
     stored = stored if isinstance(stored, dict) else {}
     out = {}
@@ -1124,6 +1145,9 @@ def upstream_config(accounts_dir):
         if key in ("header_timeout_seconds", "idle_timeout_seconds"):
             out[key] = (value if isinstance(value, int) and not isinstance(value, bool)
                         and value >= 1 else default)
+        elif key in UPSTREAM_ZEROABLE_INTS:
+            out[key] = (value if isinstance(value, int) and not isinstance(value, bool)
+                        and 0 <= value <= UPSTREAM_MAX_SECONDS else default)
         else:
             out[key] = value.strip() if isinstance(value, str) else default
     return out

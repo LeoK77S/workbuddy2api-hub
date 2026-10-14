@@ -50,7 +50,9 @@ try:
 except ValueError:
     MAX_CONCURRENT_CHAT = CHAT_SLOTS_FLOOR
 CHAT_SLOT_WAIT_SECONDS = float(os.environ.get("WB_CHAT_SLOT_WAIT", 30))
+import select
 import socket
+import ssl
 import sys
 import threading
 import time
@@ -12175,6 +12177,43 @@ class RateLimited(Exception):
         super().__init__("upstream rate limit: %s" % (self.detail[:200] or "429"))
 
 
+class RetryBudgetExhausted(Exception):
+    """The retry chain spent its own time budget without a usable upstream.
+
+    Every caller of this gateway has a deadline of its own - New API cuts the
+    response-header wait at 60s, OmniRoute's per-model first-byte budget was
+    45s - and a chain that outlives it cannot be delivered: the caller has
+    already given up, so the remaining attempts are pure waste on top of a
+    held in-flight slot. The chain stops here and answers 504 with a
+    Retry-After, which leaves the caller free to fall back while it still has
+    budget of its own.
+    """
+
+    def __init__(self, detail="", wait=15, attempts=0, elapsed=0.0):
+        self.detail = detail or ""
+        self.wait = max(1, int(wait or 15))
+        self.attempts = int(attempts or 0)
+        self.elapsed = float(elapsed or 0.0)
+        super().__init__("retry budget exhausted: %s"
+                         % (self.detail[:200] or "no response header in time"))
+
+    @property
+    def code(self):
+        return 504
+
+
+class ClientDisconnected(Exception):
+    """The caller closed its side before the chain had anything to send.
+
+    The retry chain writes nothing until the upstream's response header
+    arrives, so a caller that gave up on its own deadline used to stay
+    invisible until the first write failed - the chain kept rotating accounts
+    on a request nobody was waiting for (2026-10-12: median 1074s of spinning
+    after the client had gone). Probe the client socket between attempts
+    instead of discovering it minutes later.
+    """
+
+
 def gateway_hint(status, message):
     """A gateway-side note that sits beside the raw upstream message.
 
@@ -12547,8 +12586,8 @@ def upstream_timeouts():
 
     header covers connect/TLS/first byte; idle bounds each mid-stream
     read, so active data keeps the connection alive while a silent
-    stream fails out and releases its in-flight lease. There is no
-    total-duration cap, matching the panel project's semantics.
+    stream fails out and releases its in-flight lease. Neither bounds the
+    retry chain as a whole - that is retry_chain_budget().
     """
     try:
         cfg = wb_settings.upstream_config(ACCOUNTS_DIR)
@@ -12566,6 +12605,84 @@ def upstream_timeouts():
         except (TypeError, ValueError):
             pass
     return max(1.0, header), max(1.0, idle)
+
+
+def retry_chain_budget():
+    """(budget, first_attempt_header) seconds for one request's retry chain.
+
+    budget caps the whole chain (every attempt plus the back-off sleeps
+    between them), because each caller of this gateway has a deadline of its
+    own and a chain that outlives it is wasted work on a request nobody is
+    waiting for. first_attempt_header gives the first attempt a cheaper
+    deadline so a failed one still leaves room inside the budget for another
+    account. Both default to 0 = off, which keeps the old unbounded shape for
+    installs that have not opted in.
+    """
+    try:
+        cfg = wb_settings.upstream_config(ACCOUNTS_DIR)
+    except Exception:
+        cfg = None
+    budget = 0.0
+    first = 0.0
+    if isinstance(cfg, dict):
+        try:
+            raw = cfg.get("retry_budget_seconds")
+            if raw is not None:
+                budget = float(raw)
+        except (TypeError, ValueError):
+            pass
+        try:
+            raw = cfg.get("first_attempt_timeout_seconds")
+            if raw is not None:
+                first = float(raw)
+        except (TypeError, ValueError):
+            pass
+    return max(0.0, budget), max(0.0, first)
+
+
+# 剩余预算少于这个秒数就不再开新尝试：连一次连接加首字节都不够，开了也是白等。
+MIN_ATTEMPT_SECONDS = 3.0
+# 预算被花完时给调用方的 Retry-After 提示。这里不是限流，只是「这次没等到」，
+# 所以不沿用池里最短冷却（那可能是 600s），给一个可以立刻回来的小值。
+RETRY_BUDGET_RETRY_AFTER = 15
+
+
+# 当前请求的客户端 socket，由 chat 处理器在每个请求开头写入，供重试链的断连
+# 探测使用。用线程局部而不是参数：链会被 follow_up_with_tool_results() 再调
+# 一次，把 socket 一路透传要改四五个签名，而这一层只关心「我这一轮是谁在等」。
+_CLIENT_SOCKET = threading.local()
+
+
+def client_gone(sock=None):
+    """True when the caller already closed its side of the connection.
+
+    A zero-timeout readability probe plus MSG_PEEK sees the peer's FIN without
+    consuming anything: a client that gave up (its own deadline fired) is
+    otherwise invisible until the first write fails, which is how a cancelled
+    request used to keep rotating accounts for minutes. TLS sockets are
+    skipped - recv() takes no flags there, and this gateway terminates plain
+    HTTP (the TLS hop belongs to whatever sits in front).
+    """
+    if sock is None:
+        sock = getattr(_CLIENT_SOCKET, "sock", None)
+    if sock is None or isinstance(sock, ssl.SSLSocket):
+        return False
+    try:
+        ready, _, _ = select.select([sock], [], [], 0)
+    except (BlockingIOError, InterruptedError, ValueError, TypeError):
+        # 不是可轮询的 fd：探测不了就不下结论，宁可当客户端还在。
+        return False
+    except OSError:
+        # fd 本身已经坏了，同样意味着这一轮没有收件人了。
+        return True
+    if not ready:
+        return False
+    try:
+        return sock.recv(1, socket.MSG_PEEK) == b""
+    except (BlockingIOError, InterruptedError, ssl.SSLWantReadError):
+        return False
+    except OSError:
+        return True
 
 
 def _apply_stream_idle_timeout(response, seconds):
@@ -12678,17 +12795,72 @@ def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=No
         return egress_wait[key]
 
     max_attempts = max(2, total) + 1 + (MAX_PRODUCT_SWITCHES if auto_switch else 0)
+    # 这条链的总预算：调用方都有自己的截止时间，链比它活得久的部分没人收（见
+    # retry_chain_budget）。预算 0 时 deadline 为 None，下面就是旧路径。
+    budget, first_attempt_timeout = retry_chain_budget()
+    chain_started = time.monotonic()
+    deadline = (chain_started + budget) if budget > 0 else None
+
+    def budget_left():
+        return None if deadline is None else deadline - time.monotonic()
+
+    def chain_sleep(seconds):
+        """预算内的退避睡眠：剩下的不够就不睡，让循环头去收尾。"""
+        left = budget_left()
+        if left is not None:
+            seconds = min(seconds, max(0.0, left))
+        if seconds > 0:
+            time.sleep(seconds)
+
+    def chain_gave_up(reason):
+        """链被自己的预算截断时，交给调用方的错误。
+
+        最后一下是 429 就还是 429（限流语义不变，wait 仍取池里最短冷却）；否则
+        回 504：上游在预算内没给出响应头，调用方据此换渠道比拿到一个 502 清楚。
+        """
+        if last_429 is not None:
+            exc = RateLimited(last_429, last_429_detail,
+                              wait=retry_after_seconds(model, realm))
+        else:
+            exc = RetryBudgetExhausted(
+                reason, wait=RETRY_BUDGET_RETRY_AFTER, attempts=_attempt,
+                elapsed=time.monotonic() - chain_started)
+        try:
+            exc.account_uid = last_uid
+        except Exception:
+            pass
+        return exc
+
     # 每次失败都把【出错的那个账号】从这段对话的历史里降级（demote），而不是
     # 忘掉整段对话：重选时优先回到还留着这段前缀的暖号（见 SessionAffinity），
     # 一次大 prompt 的冷启动比重选一次账号贵得多。
     for _attempt in range(max_attempts):
+        # 客户端已经走了就别再换号：这一轮的产物没人收，换下去只是白占一个
+        # in-flight 槽位（2026-10-12 实测客户端走后还空转中位 1074s）。
+        if client_gone():
+            raise ClientDisconnected(
+                "client closed the connection before attempt %d" % (_attempt + 1))
+        left = budget_left()
+        if left is not None:
+            if _attempt > 0 and left <= MIN_ATTEMPT_SECONDS:
+                log("retry budget %.0fs spent after %d attempt(s), not starting "
+                    "attempt %d" % (budget, _attempt, _attempt + 1))
+                raise chain_gave_up(
+                    "retry budget %.0fs spent after %d attempt(s)"
+                    % (budget, _attempt))
+            # 单次尝试也不许越过预算：否则最后一次尝试会把链拖到预算之外。
+            attempt_timeout = min(header_timeout, max(left, 1.0))
+        else:
+            attempt_timeout = header_timeout
+        if _attempt == 0 and first_attempt_timeout > 0:
+            attempt_timeout = min(attempt_timeout, first_attempt_timeout)
         account = POOL.pick_for_session(realm=realm, session_key=session_key,
                                         exclude=tried, model=model,
                                         page=affinity_page) if POOL else None
         if account is None:
             if transient_hits and _attempt < max_attempts - 1:
                 tried.clear()
-                time.sleep(min(1.5 * transient_hits, 3.0))
+                chain_sleep(min(1.5 * transient_hits, 3.0))
                 continue
             break
         if account.realm != realm:
@@ -12709,7 +12881,7 @@ def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=No
         req = urllib.request.Request(chat_url, data=attempt_data, method="POST",
                                      headers=account.headers(purpose="chat"))
         try:
-            resp = wb_accounts.urlopen(req, timeout=header_timeout,
+            resp = wb_accounts.urlopen(req, timeout=attempt_timeout,
                                        proxy=account.proxy)
             _apply_stream_idle_timeout(resp, idle_timeout)
             account.note_success(model=model)
@@ -12871,7 +13043,7 @@ def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=No
                     if session_key and POOL:
                         POOL.affinity.demote(session_key, account.uid)
                     last_error = exc
-                    time.sleep(min(wait, EGRESS_SLEEP_MAX))
+                    chain_sleep(min(wait, EGRESS_SLEEP_MAX))
                     continue
                 charge_account(account, "HTTP %d" % exc.code, unknown=False)
                 log("upstream %s for '%s', retrying (fails=%d)"
@@ -12896,7 +13068,7 @@ def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=No
                         "backing off the egress %.1fs"
                         % (account.uid[:8], model, exc_detail(exc), wait))
                     last_error = exc
-                    time.sleep(min(wait, EGRESS_SLEEP_MAX))
+                    chain_sleep(min(wait, EGRESS_SLEEP_MAX))
                     continue
                 charge_account(account, "connection: %s" % exc_detail(exc, 120),
                                unknown=True)
@@ -12907,7 +13079,7 @@ def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=No
                     "retrying (degrade=%d)"
                     % (account.uid[:8], model, exc_detail(exc), account.degrade_count))
                 last_error = exc
-                time.sleep(min(0.6 * transient_hits, 2.0))
+                chain_sleep(min(0.6 * transient_hits, 2.0))
                 continue
             charge_account(account, str(exc)[:120], unknown=True)
             account.note_error(str(exc)[:120], cooldown=60, single_account=(total <= 1))
@@ -15702,6 +15874,86 @@ class Handler(BaseHTTPRequestHandler):
         self._handle_expect_continue()
         self._discard_body()
         return self._json(code, anthropic_error_obj(code, message, err_type))
+    def _track_client_socket(self):
+        """把这次请求的客户端连接交给重试链，供断连探测使用。
+
+        线程局部而非参数：链会被 follow_up_with_tool_results() 再调一次，透传
+        socket 要改一串签名，而这一层只需要知道「我这一轮是谁在等」。
+        """
+        _CLIENT_SOCKET.sock = getattr(self, "connection", None)
+
+    def _record_client_aborted(self, model, t_start, exc, stream=False):
+        """客户端在拿到任何字节之前就断了：记一行用量，不写响应。
+
+        与写 socket 失败那条路径同一个 outcome，所以「客户端放弃的请求」在两
+        种情况下口径一致。
+        """
+        record_usage(model, None, stream=bool(stream),
+                     elapsed_ms=int((time.time() - t_start) * 1000),
+                     account=getattr(exc, "account_uid", None),
+                     outcome="client_aborted", key=self._key_id())
+
+    def _retry_budget_exhausted(self, exc):
+        """504 + Retry-After：链花完了自己的时间预算，上游还没给响应头。
+
+        用 504 而不是 429：这不是限流，是「在预算内没等到」。调用方据此换渠道
+        重试即可（New API 的 AutomaticRetryStatusCodes 含 500-504），比收到一个
+        语焉不详的 502 清楚。
+        """
+        wait = max(1, int(getattr(exc, "wait", RETRY_BUDGET_RETRY_AFTER)
+                          or RETRY_BUDGET_RETRY_AFTER))
+        text = ("upstream did not send a response header within the gateway's "
+                "retry budget (%.0fs, %d attempt(s)); retry in %ds"
+                % (getattr(exc, "elapsed", 0.0),
+                   getattr(exc, "attempts", 0), wait))
+        detail = getattr(exc, "detail", "")
+        if detail:
+            text += " - " + str(detail)[:200]
+        # 504 可能在读完 body 之前就发出（预算是在换号之间判的），所以按 _error
+        # 的做法把请求体排干。
+        self._handle_expect_continue()
+        self._discard_body()
+        body = json.dumps({
+            "error": {
+                "message": text,
+                "type": "upstream_timeout",
+                "code": 504,
+                "retry_after": wait,
+            }
+        }, ensure_ascii=False).encode("utf-8")
+        self.send_response(504)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Retry-After", str(wait))
+        if cors_origin_allowed(self.path):
+            self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _anthropic_retry_budget_exhausted(self, exc):
+        """504 + Retry-After in the Anthropic error envelope."""
+        wait = max(1, int(getattr(exc, "wait", RETRY_BUDGET_RETRY_AFTER)
+                          or RETRY_BUDGET_RETRY_AFTER))
+        text = ("upstream did not send a response header within the gateway's "
+                "retry budget (%.0fs, %d attempt(s)); retry in %ds"
+                % (getattr(exc, "elapsed", 0.0),
+                   getattr(exc, "attempts", 0), wait))
+        detail = getattr(exc, "detail", "")
+        if detail:
+            text += " - " + str(detail)[:200]
+        self._handle_expect_continue()
+        self._discard_body()
+        body = json.dumps(anthropic_error_obj(504, text, "api_error"),
+                          ensure_ascii=False).encode("utf-8")
+        self.send_response(504)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Retry-After", str(wait))
+        if cors_origin_allowed(self.path):
+            self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
     def _rate_limited(self, exc):
         """429 with Retry-After, so clients back off instead of hammering.
 
@@ -18176,6 +18428,9 @@ class Handler(BaseHTTPRequestHandler):
         model = payload.get("model") or "deepseek-v4.1-flash"
         want_stream = bool(payload.get("stream"))
         t_start = time.time()
+        # 交给重试链做断连探测：链在拿到上游响应头前一个字节都不发，
+        # 客户端走了只能靠探 socket 发现（见 client_gone）。
+        self._track_client_socket()
         fp = prompt_fingerprint(chat_req.get("messages"))
         log(
             "responses: model=%s stream=%s msgs=%d effort=%r tools=%d/%d custom_tools=%s"
@@ -18210,6 +18465,15 @@ class Handler(BaseHTTPRequestHandler):
                          account=getattr(exc, "account_uid", None),
                          key=self._key_id())
             return self._rate_limited(exc)
+        except ClientDisconnected as exc:
+            self._record_client_aborted(model, t_start, exc, stream=want_stream)
+            return
+        except RetryBudgetExhausted as exc:
+            record_error(model, 504, exc.detail[:200],
+                         elapsed_ms=int((time.time() - t_start) * 1000),
+                         account=getattr(exc, "account_uid", None),
+                         key=self._key_id())
+            return self._retry_budget_exhausted(exc)
         except urllib.error.HTTPError as exc:
             detail = exc.read(600).decode("utf-8", "replace")
             record_error(model, exc.code, detail,
@@ -18284,7 +18548,8 @@ class Handler(BaseHTTPRequestHandler):
                     internal, holder, model, session_key, t_start, drop_tools=give_up)
             if total_usage:
                 holder["usage"] = total_usage
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError,
+                ClientDisconnected):
             wall = int((time.time() - t_start) * 1000)
             record_usage(model, holder.get("usage"), stream=True, elapsed_ms=wall,
                          ttft_ms=first_ms,
@@ -18352,6 +18617,18 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 upstream, account, _ = follow_up_with_tool_results(
                     calls, holder, model, session_key, t_start, drop_tools=give_up)
+            except ClientDisconnected as exc:
+                # 客户端已经走了：这一轮的产物没人收，记一行就收工。
+                self._record_client_aborted(model, t_start, exc)
+                return
+            except RetryBudgetExhausted as exc:
+                # 这一层不能把它压成 502：响应头还没发出去，504 + Retry-After
+                # 才是调用方能用的答案（流式那一条已经发过头了，只能收流）。
+                record_error(model, 504, exc.detail[:200],
+                             elapsed_ms=int((time.time() - t_start) * 1000),
+                             account=getattr(exc, "account_uid", None),
+                             key=self._key_id())
+                return self._retry_budget_exhausted(exc)
             except Exception as exc:
                 record_error(model, 502, "web tool follow-up failed: %s" % exc,
                              elapsed_ms=int((time.time() - t_start) * 1000),
@@ -18389,6 +18666,9 @@ class Handler(BaseHTTPRequestHandler):
         want_stream = bool(chat_req.get("stream"))
         session_key = extract_session_key(self.headers, chat_req)
         t_start = time.time()
+        # 交给重试链做断连探测：链在拿到上游响应头前一个字节都不发，
+        # 客户端走了只能靠探 socket 发现（见 client_gone）。
+        self._track_client_socket()
         fp = prompt_fingerprint(chat_req.get("messages"))
         try:
             client_ip = self.client_address[0] if self.client_address else ""
@@ -18424,6 +18704,15 @@ class Handler(BaseHTTPRequestHandler):
                          account=getattr(exc, "account_uid", None),
                          key=self._key_id())
             return self._anthropic_rate_limited(exc)
+        except ClientDisconnected as exc:
+            self._record_client_aborted(model, t_start, exc, stream=want_stream)
+            return
+        except RetryBudgetExhausted as exc:
+            record_error(model, 504, exc.detail[:200],
+                         elapsed_ms=int((time.time() - t_start) * 1000),
+                         account=getattr(exc, "account_uid", None),
+                         key=self._key_id())
+            return self._anthropic_retry_budget_exhausted(exc)
         except urllib.error.HTTPError as exc:
             try:
                 detail = exc.read(600).decode("utf-8", "replace")
@@ -18496,7 +18785,8 @@ class Handler(BaseHTTPRequestHandler):
                     first_ms = int((time.time() - t_start) * 1000)
                 self.wfile.write(frame)
                 self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError,
+                ClientDisconnected):
             wall = int((time.time() - t_start) * 1000)
             record_usage(model, holder.get("usage"), stream=True, elapsed_ms=wall,
                          ttft_ms=first_ms,
@@ -18673,6 +18963,9 @@ class Handler(BaseHTTPRequestHandler):
         want_stream = bool(payload.get("stream"))
         model = payload.get("model") or "hy4-preview"
         t_start = time.time()
+        # 交给重试链做断连探测：链在拿到上游响应头前一个字节都不发，
+        # 客户端走了只能靠探 socket 发现（见 client_gone）。
+        self._track_client_socket()
         try:
             req_realm = self._request_realm() or CURRENT_REALM
             blocked = self._cross_realm_error(payload.get("model"), req_realm)
@@ -18700,6 +18993,15 @@ class Handler(BaseHTTPRequestHandler):
                          account=getattr(exc, "account_uid", None),
                          key=self._key_id())
             return self._rate_limited(exc)
+        except ClientDisconnected as exc:
+            self._record_client_aborted(model, t_start, exc, stream=want_stream)
+            return
+        except RetryBudgetExhausted as exc:
+            record_error(model, 504, exc.detail[:200],
+                         elapsed_ms=int((time.time() - t_start) * 1000),
+                         account=getattr(exc, "account_uid", None),
+                         key=self._key_id())
+            return self._retry_budget_exhausted(exc)
         except urllib.error.HTTPError as exc:
             detail = exc.read(600).decode("utf-8", "replace")
             record_error(model, exc.code, detail,
