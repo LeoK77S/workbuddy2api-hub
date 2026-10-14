@@ -133,7 +133,7 @@ python tests/run_all.py            # 全部套件
 python tests/run_all.py realm      # 只跑名字里含 realm 的
 ```
 
-- 146 个套件：108 个 Python + 38 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
+- 148 个套件：110 个 Python + 38 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
 - `tests/_mobile_check.py` 是独立的 Playwright 手机/桌面布局检查器（需自行安装 Playwright），按需手动运行，不在上面的套件集里。
 - CI（`.github/workflows/tests.yml`）跑同一条命令：Ubuntu 上 python 3.9 与 3.12（3.9 是本项目声称的最低版本），Windows 上 python 3.12；推送 `v*` tag 时额外断言 **tag == 源码版本**（`-ci` 演练 tag 豁免）。
 
@@ -362,6 +362,12 @@ export ANTHROPIC_API_KEY="你在看板设置中添加并绑定的API_Key"
 <!-- 发版时：把下面的 Unreleased 段落整理成新版本号（## vX.Y.Z），整体移入 docs/CHANGELOG.md 顶部 -->
 
 ### Unreleased
+
+- **重试链不再活过调用方的截止时间：总预算、首字节分级与断连感知**（#271 的后续）：网关在拿到上游响应头之前一个字节都不发，而重试链此前没有总时长上限（`max_attempts = max(2, count_ready) + 1 + 4` 次尝试，每次等满 `header_timeout`），于是一个已经被调用方放弃的请求会让链继续空转——2026-10-12 的实测是客户端走后还跑中位 1074 秒（最大 1366 秒）才落 502，白占一个在途槽位。现在：
+  - **总预算**（设置页「重试链总预算」，`upstream.retry_budget_seconds`，默认 **0 = 不限**，老安装行为不变；建议按调用方的截止时间设 40）：一次请求从第一次尝试到最后一次尝试的时长上限，含中间的退避等待；预算花完时最后一下是 429 就仍回 429，否则回 **504 + `Retry-After`**，把剩余预算留给调用方去换渠道（New API 的 `AutomaticRetryStatusCodes` 含 500–504，会据此重试）；
+  - **首字节分级**（`upstream.first_attempt_timeout_seconds`，默认 **0 = 不分级**；建议 15）：第一次尝试用更短的响应头超时，失败后还有余量在预算内换账号再试一次；
+  - **断连感知**：每次换号前用零超时 `select` + `MSG_PEEK` 探一次客户端连接，发现对端已关闭就直接终止整条链并记一行 `client_aborted`，不再为没人等的请求换号。
+  实测（新增套件 `tests/_test_retry_budget_http.py`，4 个账号 + 只挂起不回头的假上游）：6 秒预算下链在 5.9 秒、2 次尝试后收手并回 504 + `Retry-After: 15`；客户端 0.4 秒断开时上游只被打 1 次。单元面见 `tests/_test_retry_budget.py`。
 
 已发布版本的完整记录（v1.4.5 ~ v1.7.4，含每版的 PR 归属）见 **[docs/CHANGELOG.md](docs/CHANGELOG.md)**。
 
