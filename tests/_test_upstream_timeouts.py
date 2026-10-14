@@ -32,6 +32,8 @@ class UpstreamSettingsTests(unittest.TestCase):
         self.assertEqual(cfg, {
             "header_timeout_seconds": 120,
             "idle_timeout_seconds": 300,
+            "retry_budget_seconds": 0,
+            "first_attempt_timeout_seconds": 0,
             "device_token": "",
             "device_token_file": "",
         })
@@ -254,8 +256,12 @@ class StreamTimeoutTests(unittest.TestCase):
                 self.closed = True
 
         with tempfile.TemporaryDirectory() as directory:
+            # 分级超时与总预算都关掉（0），这样这条用例量的就是「header_timeout
+            # 有没有传到 urlopen」本身；预算与分级的行为在
+            # _test_retry_budget.py / _test_retry_budget_http.py 里量。
             wb_settings.set_upstream_config(directory, {
-                "header_timeout_seconds": 45, "idle_timeout_seconds": 600})
+                "header_timeout_seconds": 45, "idle_timeout_seconds": 600,
+                "retry_budget_seconds": 0, "first_attempt_timeout_seconds": 0})
             account = wb_accounts.Account(
                 {"uid": "uid-b1", "accessToken": "t", "realm": "intl"},
                 os.path.join(directory, "uid-b1.json"))
