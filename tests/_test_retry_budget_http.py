@@ -66,7 +66,7 @@ for index in (1, 2, 3, 4):
         }, fh)
 
 UPSTREAM_PORT = life.free_port()
-MOCK = {"mode": "stall", "attempts": 0, "stall_seconds": 30}
+MOCK = {"mode": "stall", "attempts": 0, "uids": set(), "stall_seconds": 30}
 
 
 class MockUpstream(BaseHTTPRequestHandler):
@@ -80,6 +80,7 @@ class MockUpstream(BaseHTTPRequestHandler):
         if length:
             self.rfile.read(length)
         MOCK["attempts"] += 1
+        MOCK["uids"].add(self._account_uid())
         if MOCK["mode"] == "429":
             payload = json.dumps({"code": 14003, "msg": "too many requests",
                                   "requestId": "mock"}).encode("utf-8")
@@ -91,6 +92,24 @@ class MockUpstream(BaseHTTPRequestHandler):
             return
         # stall：读过请求就什么都不发，等客户端自己超时。
         time.sleep(MOCK["stall_seconds"])
+
+    def _account_uid(self):
+        """这一轮是哪个账号打的（JWT 的 uid 声明）。
+
+        链的轮次不能拿「假上游收到几次 POST」来数：wb_upstream_pool 在拿到一条
+        已被对端关掉的 keep-alive 连接时会自己重发一次，同一条请求因此可能落两
+        次 POST。重发不会换号，所以「换没换号」要看账号数，不看 POST 数。
+        """
+        auth = self.headers.get("Authorization") or ""
+        token = auth.split(" ", 1)[1] if auth.startswith("Bearer ") else ""
+        parts = token.split(".")
+        if len(parts) < 2:
+            return ""
+        try:
+            raw = base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4))
+            return json.loads(raw.decode("utf-8")).get("uid") or ""
+        except Exception:
+            return ""
 
     def do_GET(self):
         payload = b'{"data":{}}'
@@ -193,17 +212,19 @@ def post(body, timeout=30):
 print("== 1. 预算花完：504 + Retry-After ==")
 MOCK["mode"] = "stall"
 MOCK["attempts"] = 0
+MOCK["uids"].clear()
 status, headers, text, elapsed = post(
     {"model": "deepseek-v4.1-flash", "stream": True,
      "messages": [{"role": "user", "content": "hi"}]}, timeout=30)
-print("  [INFO] 实测耗时 %.1fs，上游尝试 %d 次" % (elapsed, MOCK["attempts"]))
+print("  [INFO] 实测耗时 %.1fs，上游收到 POST %d 次（不同账号 %d 个）"
+      % (elapsed, MOCK["attempts"], len(MOCK["uids"])))
 check("状态码是 504", status == 504, "got %s" % status)
 check("带 Retry-After", headers.get("Retry-After") == "15",
       "got %r" % headers.get("Retry-After"))
 check("耗时被夹在预算附近（6s 预算，<= 12s）", elapsed <= 12.0, "%.1fs" % elapsed)
 check("耗时没有退化到旧的 120s 形状", elapsed >= 2.0, "%.1fs" % elapsed)
-check("4 个账号只用了 2 次尝试（预算收的手）", MOCK["attempts"] == 2,
-      "attempts=%d" % MOCK["attempts"])
+check("4 个账号只换了 2 个（预算收的手）", len(MOCK["uids"]) == 2,
+      "uids=%d attempts=%d" % (len(MOCK["uids"]), MOCK["attempts"]))
 try:
     payload = json.loads(text)
     check("错误体是 budget 文案",
@@ -216,6 +237,7 @@ except ValueError:
 print("== 2. 客户端先走：链不再开第二次尝试 ==")
 MOCK["mode"] = "stall"
 MOCK["attempts"] = 0
+MOCK["uids"].clear()
 before = len(usage_rows())
 sock = socket.create_connection(("127.0.0.1", GATEWAY_PORT), timeout=5)
 body = json.dumps({"model": "deepseek-v4.1-flash", "stream": True,
@@ -230,8 +252,10 @@ time.sleep(0.4)
 sock.close()
 # 第一次尝试的响应头超时是 2s，之后链应当在探测到断连时收手。
 time.sleep(3.5)
-check("上游只被打了 1 次（没开第二次尝试）", MOCK["attempts"] == 1,
-      "attempts=%d" % MOCK["attempts"])
+# 数「换没换号」而不是数 POST：连接池对一条已被对端关掉的 keep-alive 连接会
+# 自己重发一次，POST 可能是 2 而链其实只跑了一轮（见 MockUpstream._account_uid）。
+check("链没有换号（只用了 1 个账号）", len(MOCK["uids"]) == 1,
+      "uids=%d attempts=%d" % (len(MOCK["uids"]), MOCK["attempts"]))
 rows = usage_rows()[before:]
 aborted = [r for r in rows if r.get("outcome") == "client_aborted"]
 check("记了一行 client_aborted", len(aborted) == 1,
@@ -240,6 +264,7 @@ check("记了一行 client_aborted", len(aborted) == 1,
 print("== 3. 429 仍然是 429 ==")
 MOCK["mode"] = "429"
 MOCK["attempts"] = 0
+MOCK["uids"].clear()
 status, headers, text, elapsed = post(
     {"model": "deepseek-v4.1-flash", "stream": False,
      "messages": [{"role": "user", "content": "hi"}]}, timeout=30)
