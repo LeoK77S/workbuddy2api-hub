@@ -78,8 +78,7 @@ class MockUpstream(BaseHTTPRequestHandler):
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
-        if length:
-            self.rfile.read(length)
+        raw = self.rfile.read(length) if length else b""
         MOCK["attempts"] += 1
         MOCK["uids"].add(self._account_uid())
         MOCK["posts"].append({
@@ -88,6 +87,9 @@ class MockUpstream(BaseHTTPRequestHandler):
             "path": self.path,
             "auth": (self.headers.get("Authorization") or "")[:26],
             "conn": str(self.connection.getpeername()) if self.connection else "",
+            "blen": length,
+            "body": raw[:150].decode("utf-8", "replace"),
+            "keys": ",".join(sorted(self.headers.keys())),
         })
         if MOCK["mode"] == "429":
             payload = json.dumps({"code": 14003, "msg": "too many requests",
