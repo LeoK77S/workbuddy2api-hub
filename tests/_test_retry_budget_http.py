@@ -66,7 +66,8 @@ for index in (1, 2, 3, 4):
         }, fh)
 
 UPSTREAM_PORT = life.free_port()
-MOCK = {"mode": "stall", "attempts": 0, "uids": set(), "stall_seconds": 30}
+MOCK = {"mode": "stall", "attempts": 0, "uids": set(), "posts": [],
+        "t0": time.monotonic(), "stall_seconds": 30}
 
 
 class MockUpstream(BaseHTTPRequestHandler):
@@ -81,6 +82,13 @@ class MockUpstream(BaseHTTPRequestHandler):
             self.rfile.read(length)
         MOCK["attempts"] += 1
         MOCK["uids"].add(self._account_uid())
+        MOCK["posts"].append({
+            "t": round(time.monotonic() - MOCK["t0"], 3),
+            "uid": self._account_uid(),
+            "path": self.path,
+            "auth": (self.headers.get("Authorization") or "")[:26],
+            "conn": str(self.connection.getpeername()) if self.connection else "",
+        })
         if MOCK["mode"] == "429":
             payload = json.dumps({"code": 14003, "msg": "too many requests",
                                   "requestId": "mock"}).encode("utf-8")
@@ -213,6 +221,8 @@ print("== 1. 预算花完：504 + Retry-After ==")
 MOCK["mode"] = "stall"
 MOCK["attempts"] = 0
 MOCK["uids"].clear()
+MOCK["posts"] = []
+MOCK["t0"] = time.monotonic()
 status, headers, text, elapsed = post(
     {"model": "deepseek-v4.1-flash", "stream": True,
      "messages": [{"role": "user", "content": "hi"}]}, timeout=30)
@@ -238,6 +248,8 @@ print("== 2. 客户端先走：链不再开第二次尝试 ==")
 MOCK["mode"] = "stall"
 MOCK["attempts"] = 0
 MOCK["uids"].clear()
+MOCK["posts"] = []
+MOCK["t0"] = time.monotonic()
 before = len(usage_rows())
 sock = socket.create_connection(("127.0.0.1", GATEWAY_PORT), timeout=5)
 body = json.dumps({"model": "deepseek-v4.1-flash", "stream": True,
@@ -256,6 +268,8 @@ time.sleep(3.5)
 # 自己重发一次，POST 可能是 2 而链其实只跑了一轮（见 MockUpstream._account_uid）。
 check("链没有换号（只用了 1 个账号）", len(MOCK["uids"]) == 1,
       "uids=%d attempts=%d" % (len(MOCK["uids"]), MOCK["attempts"]))
+for _p in MOCK["posts"]:
+    print("  [DEBUG] POST %s" % json.dumps(_p, ensure_ascii=False))
 rows = usage_rows()[before:]
 aborted = [r for r in rows if r.get("outcome") == "client_aborted"]
 check("记了一行 client_aborted", len(aborted) == 1,
@@ -265,6 +279,8 @@ print("== 3. 429 仍然是 429 ==")
 MOCK["mode"] = "429"
 MOCK["attempts"] = 0
 MOCK["uids"].clear()
+MOCK["posts"] = []
+MOCK["t0"] = time.monotonic()
 status, headers, text, elapsed = post(
     {"model": "deepseek-v4.1-flash", "stream": False,
      "messages": [{"role": "user", "content": "hi"}]}, timeout=30)
