@@ -1967,12 +1967,16 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '该槽位被': 'This slot is used by',
     '该模型今日已达限额，仅此模型受限（本地 0 点恢复）': 'This model reached the daily limit; only this model is restricted (resets at local midnight)',
     '该模型暂无定价数据': 'No pricing data for this model yet',
+    '该模型被上游临时限流（429），仅此模型受限，到点自动恢复': 'This model is temporarily rate-limited upstream (429); only this model is restricted and it recovers automatically',
+    '该模型配额耗尽（code 6004），同账号其他模型不受影响': "This model's quota is exhausted (code 6004); the account's other models are unaffected",
     '当前窗口的起点未知（没有撞线记录，或记录已过期），已用按最近 24 小时统计，是剩余量的下界': 'The start of the current window is unknown (no cap on record, or a stale one); used counts the last 24h, a lower bound of what is left',
     // 模型冷却 pill 的动态文本按片段匹配（整串含模型名与时间戳，命不中整串键），
     // 所以片段键必须带前后空格，避免误命中其它文案。
     ' · 撞线 ': ' · hit at ',
     ' · 恢复 ': ' · back at ',
-    '撞线时间': 'Cap time',
+    // 禁用总览的「开始时间」列：模型级限流两类都有真实起始时刻（6004 撞线 /
+    // 临时 429 限流），列头用中性措辞，两类性质由「原因」列区分。
+    '开始时间': 'Started',
     '该账号仅此模型受限（上游判定额度用满）；撞线时间与恢复时间均为本地时间': 'only this model is restricted for this account (the upstream declared its quota exhausted); cap and reset times are local',
     '该账号仅此模型受限；时间为本地时间': 'only this model is restricted for this account; times are local',
     '该账号属于': 'This account belongs to the',
@@ -2180,7 +2184,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     // 撞线（6004）相关：pill 的动态片段 + 禁用总览的列头 + pill 悬停标题。
     " · 撞线 ": " · 撞線 ",
     " · 恢复 ": " · 恢復 ",
-    "撞线时间": "撞線時間",
+    "开始时间": "開始時間",
     "该账号仅此模型受限（上游判定额度用满）；撞线时间与恢复时间均为本地时间": "該帳號僅此模型受限（上游判定額度用滿）；撞線時間與恢復時間均為本地時間",
     " 个未绑定账号分配代理出口": " 個未繫結帳號分配代理出口",
     " 个槽位，记得点「保存槽位」": " 個槽位，記得點「儲存槽位」",
@@ -2583,6 +2587,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     "设置文件": "設定檔案",
     "设置里还没有任何 API Key，全部流量都落在下面的未归属行里。": "設定裡還沒有任何 API Key，全部流量都落在下面的未歸屬行裡。",
     "该模型暂无定价数据": "該模型暫無定價資料",
+    "该模型被上游临时限流（429），仅此模型受限，到点自动恢复": "該模型被上游臨時限流（429），僅此模型受限，到點自動恢復",
     "该模型配额耗尽（code 6004），同账号其他模型不受影响": "該模型配額耗盡（code 6004），同帳號其他模型不受影響",
     "该账号仅此模型受限；时间为本地时间": "該帳號僅此模型受限；時間為本地時間",
     "该账号属于": "該帳號屬於",
@@ -6906,11 +6911,20 @@ function disabledRows(){
     }
     (Array.isArray(a.modelCooldowns) ? a.modelCooldowns : []).forEach(c => {
       if(!c || !c.model) return;
-      // 带 cappedAt 的是 6004 撞线（恢复时间来自上游）：撞线时间单独一列，
-      // 没有撞线记录的临时限流窗口该列为「—」。
+      // 带 cappedAt 的是 6004 撞线（恢复时间来自上游）：撞线时间单独一列。
       const hit = c.cappedAt ? fmtCoolAt(c.cappedAt) : '';
+      // 起始时刻：6004 用上游给的撞线时刻；其余 429 用 hub 记下的限流时刻
+      // （c.startedAt）。两者都取不到时才留空——不用假值填充表格。
+      const started = hit || (c.startedAt ? fmtCoolAt(c.startedAt) : '');
+      // 两类模型级限流的原因必须分开写：带 cappedAt 的是上游 6004 配额耗尽
+      // （恢复时间以小时计），不带 cappedAt 的只是一次 429 临时限流（60s~10m
+      // 的短窗口，到点自动恢复）。共用一句「配额耗尽」会把短时 parking 说成
+      // 要等几小时，也让真正该关注的 6004 淹没在里面。
       rows.push({who, realm, scope: c.model, kind: '上游限流', detail, cappedAt: hit,
-                 reason: '该模型配额耗尽（code 6004），同账号其他模型不受影响',
+                 startedAt: started,
+                 reason: hit
+                   ? '该模型配额耗尽（code 6004），同账号其他模型不受影响'
+                   : '该模型被上游临时限流（429），仅此模型受限，到点自动恢复',
                  until: fmtCoolAt(c.expiresAt)});
     });
     if(a.dailyLimitBlocked){
@@ -6955,7 +6969,7 @@ function renderDisabled(){
     + '<th style="text-align:left">范围</th>'
     + '<th style="text-align:center;width:100px">类型</th>'
     + '<th style="text-align:left">原因</th>'
-    + '<th style="text-align:center;width:156px">撞线时间</th>'
+    + '<th style="text-align:center;width:156px">开始时间</th>'
     + '<th style="text-align:center;width:156px">恢复时间</th>'
     + '</tr></thead><tbody>'
     + rows.map(r => '<tr>'
@@ -6965,8 +6979,10 @@ function renderDisabled(){
         + '<td style="text-align:center"><span class="badge ' + badge(r.kind) + '">' + esc(r.kind) + '</span></td>'
         + '<td style="text-align:left"' + (r.detail ? ' data-tip="' + esc(r.detail) + '"' : '') + '>'
           + esc(r.reason) + '</td>'
-        // 撞线时间：只有 6004 撞线（持久化的 model_caps）才有；其余行「—」。
-        + '<td style="text-align:center">' + esc(r.cappedAt || '—') + '</td>'
+        // 开始时间：这一行是何时进入该状态的。模型级限流两类都有真实时刻——
+        // 6004 是上游给的撞线时刻（cappedAt），临时 429 是 hub 记下的限流时刻
+        // （startedAt）；其余行类没有起始时刻，留「—」。
+        + '<td style="text-align:center">' + esc(r.startedAt || '—') + '</td>'
         + '<td style="text-align:center">' + (r.manual ? '—（需手动启用）' : (r.until || '—')) + '</td>'
         + '</tr>').join('')
     + '</tbody></table></div>';
