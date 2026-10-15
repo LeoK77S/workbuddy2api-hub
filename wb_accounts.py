@@ -547,6 +547,12 @@ class Account(object):
         # otherwise a single throttled model blackholes every request on the pool.
         # Deliberately runtime-only (not persisted): see VOLATILE_FIELDS.
         self.model_cooldowns = {}
+        # 每个模型冷却窗口是**什么时候挂上的**（model -> epoch）。model_cooldowns
+        # 只留恢复时刻，起始时刻以前被丢掉：面板因此无法如实说「限流时刻」，只能
+        # 用「—」占位，把 60s 的短时 parking 和几小时的 6004 撞线画成一样。与
+        # model_cooldowns 同款运行时态：重启即清零（6004 的撞线时刻另有持久化的
+        # model_caps["at"]）。
+        self.model_cooldowns_at = {}
 # 402 (out of credits): a hard park until the next local 04:00,
         # instead of a short cooldown that would retry an empty account all
         # day. Runtime-only, like the other throttle windows; a balance
@@ -695,6 +701,11 @@ class Account(object):
         models = []
         for model, until in active:
             entry = {"model": model, "expiresAt": int(until)}
+            # 这个窗口是何时挂上的：面板据此把「限流时刻」如实画出来，而不是拿
+            # 「—」占位（临时 429 与 6004 撞线都由此有真实的时间语义）。
+            started = self.model_cooldowns_at.get(model)
+            if started:
+                entry["startedAt"] = int(started)
             # 撞线时间只在 cap 还在恢复期内时带上：它同时说明这次禁用是
             # 「额度用满」（6004）而不是一次临时限流，面板据此显示两段时间。
             if self.cap_until(model, now) > 0:
@@ -2020,7 +2031,11 @@ class Account(object):
                 # Model-scoped throttle: keep the account usable for every other model.
                 wait = max(1.0, float(until) - time.time()) if until else (
                     3.0 if single_account else float(cooldown))
-                self.model_cooldowns[model] = time.time() + wait
+                now = time.time()
+                self.model_cooldowns[model] = now + wait
+                # 起始时刻：面板要如实说「限流时刻 + 恢复时间」，而恢复时刻减不出
+                # 起始时刻（wait 来自 60s→10m 的阶梯，不落库）。记这一次就够了。
+                self.model_cooldowns_at[model] = now
                 return
             actual_cooldown = 3 if single_account else cooldown
             self.cooldown_until = time.time() + actual_cooldown
@@ -2127,6 +2142,7 @@ class Account(object):
         with self._throttle_lock:
             if model:
                 self.model_cooldowns.pop(model, None)
+                self.model_cooldowns_at.pop(model, None)
             self.soft_streak = 0
             self.unscoped_streak = 0
             self.fails = 0
@@ -2162,13 +2178,16 @@ self.balance_until - now, self.breaker_until - now, self.degrade_until - now)
             if model:
                 if not (keep_caps and self.cap_until(model) > 0):
                     self.model_cooldowns.pop(model, None)
+                    self.model_cooldowns_at.pop(model, None)
             elif keep_caps:
                 now = time.time()
                 for mid in [m for m in self.model_cooldowns
                             if self.cap_until(m, now) <= 0]:
                     self.model_cooldowns.pop(mid, None)
+                    self.model_cooldowns_at.pop(mid, None)
             else:
                 self.model_cooldowns.clear()
+                self.model_cooldowns_at.clear()
             if (self.last_error or self.cooldown_until
                     or self.last_error_detail or self.balance_until):
                 self.last_error = ""
