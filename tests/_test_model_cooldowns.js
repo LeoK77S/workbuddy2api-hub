@@ -78,10 +78,23 @@ assert.equal(capEntry.cappedAt, fmtAt(hit));
 assert.equal(capEntry.until, localTime);
 assert.equal(plainEntry.cappedAt, '');
 assert.equal(plainEntry.until, localTime);
+
+// 两类模型级限流的「原因」不能共用一句：带 cappedAt 的是上游 6004 配额耗尽
+// （恢复时间以小时计），不带 cappedAt 的只是一次 429 临时限流（60s~10m 的短
+// 窗口）。旧文案把后者也写成「配额耗尽（code 6004）」，会让人以为要等几小时。
+assert.ok(/配额耗尽/.test(capEntry.reason) && /6004/.test(capEntry.reason),
+  '6004 撞线行如实说配额耗尽：' + capEntry.reason);
+assert.ok(!/6004/.test(plainEntry.reason),
+  '429 临时限流行不得提 code 6004：' + plainEntry.reason);
+assert.ok(/临时限流/.test(plainEntry.reason) && /429/.test(plainEntry.reason),
+  '429 临时限流行如实说临时限流：' + plainEntry.reason);
+
 renderDisabled();
 const table = dom.byId('disabledList').innerHTML;
 assert(table.includes('撞线时间'), '禁用总览表头带撞线时间列');
 assert(table.includes('hy3') && table.includes(fmtAt(hit)), '撞线行画出撞线时间');
+assert(table.includes('该模型配额耗尽（code 6004）'), '6004 行按配额耗尽呈现');
+assert(table.includes('该模型被上游临时限流（429）'), '429 行按临时限流呈现');
 
 const unsafe = accountRow(base({modelCooldowns: [
   {model: '"><img src=x onerror=alert(1)>', expiresAt: until},

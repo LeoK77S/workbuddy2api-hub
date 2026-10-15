@@ -1967,6 +1967,8 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     '该槽位被': 'This slot is used by',
     '该模型今日已达限额，仅此模型受限（本地 0 点恢复）': 'This model reached the daily limit; only this model is restricted (resets at local midnight)',
     '该模型暂无定价数据': 'No pricing data for this model yet',
+    '该模型被上游临时限流（429），仅此模型受限，到点自动恢复': 'This model is temporarily rate-limited upstream (429); only this model is restricted and it recovers automatically',
+    '该模型配额耗尽（code 6004），同账号其他模型不受影响': "This model's quota is exhausted (code 6004); the account's other models are unaffected",
     '当前窗口的起点未知（没有撞线记录，或记录已过期），已用按最近 24 小时统计，是剩余量的下界': 'The start of the current window is unknown (no cap on record, or a stale one); used counts the last 24h, a lower bound of what is left',
     // 模型冷却 pill 的动态文本按片段匹配（整串含模型名与时间戳，命不中整串键），
     // 所以片段键必须带前后空格，避免误命中其它文案。
@@ -2583,6 +2585,7 @@ button.page-nav-top:hover{background:var(--panel2);border-color:var(--accent);co
     "设置文件": "設定檔案",
     "设置里还没有任何 API Key，全部流量都落在下面的未归属行里。": "設定裡還沒有任何 API Key，全部流量都落在下面的未歸屬行裡。",
     "该模型暂无定价数据": "該模型暫無定價資料",
+    "该模型被上游临时限流（429），仅此模型受限，到点自动恢复": "該模型被上游臨時限流（429），僅此模型受限，到點自動恢復",
     "该模型配额耗尽（code 6004），同账号其他模型不受影响": "該模型配額耗盡（code 6004），同帳號其他模型不受影響",
     "该账号仅此模型受限；时间为本地时间": "該帳號僅此模型受限；時間為本地時間",
     "该账号属于": "該帳號屬於",
@@ -6909,8 +6912,14 @@ function disabledRows(){
       // 带 cappedAt 的是 6004 撞线（恢复时间来自上游）：撞线时间单独一列，
       // 没有撞线记录的临时限流窗口该列为「—」。
       const hit = c.cappedAt ? fmtCoolAt(c.cappedAt) : '';
+      // 两类模型级限流的原因必须分开写：带 cappedAt 的是上游 6004 配额耗尽
+      // （恢复时间以小时计），不带 cappedAt 的只是一次 429 临时限流（60s~10m
+      // 的短窗口，到点自动恢复）。共用一句「配额耗尽」会把短时 parking 说成
+      // 要等几小时，也让真正该关注的 6004 淹没在里面。
       rows.push({who, realm, scope: c.model, kind: '上游限流', detail, cappedAt: hit,
-                 reason: '该模型配额耗尽（code 6004），同账号其他模型不受影响',
+                 reason: hit
+                   ? '该模型配额耗尽（code 6004），同账号其他模型不受影响'
+                   : '该模型被上游临时限流（429），仅此模型受限，到点自动恢复',
                  until: fmtCoolAt(c.expiresAt)});
     });
     if(a.dailyLimitBlocked){
