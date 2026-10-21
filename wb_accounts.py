@@ -1862,7 +1862,7 @@ class Account(object):
                 for attempt in range(attempts):
                     model = models[attempt % len(models)]
                     res = self._daily_chat_web_once(
-                        prompt, wait_seconds=base * (2 ** attempt), model=model)
+                        prompt, wait_seconds=base * (attempt + 1), model=model)
                     res["attempts"] = attempt + 1
                     res["models_tried"] = tried + [model]
                     res["model"] = model
