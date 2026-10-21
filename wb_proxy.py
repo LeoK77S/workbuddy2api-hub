@@ -10705,6 +10705,16 @@ def merge_catalog(primary, realm=None, extras=False):
             merged[mid] = base
         elif mid not in merged:
             merged[mid] = {}
+    # Local-only override (no PR): keep the intl picker on "high" for this
+    # model. The live payload now restates low/high/max, so pinning the
+    # bundled snapshot alone is not enough - the override has to win after
+    # the merge. The cn catalogue keeps whatever its own payload declares.
+    if r in ("intl", "all"):
+        pinned = merged.get("deepseek-v4.1-flash")
+        if pinned is not None:
+            pinned = dict(pinned)
+            pinned["reasoning"] = {"effort": "high", "summary": "auto"}
+            merged["deepseek-v4.1-flash"] = pinned
     order = CN_UI_ORDER if r == "cn" else INTL_UI_ORDER
     if r == "all":
         order = list(INTL_UI_ORDER) + [m for m in CN_UI_ORDER if m not in INTL_UI_ORDER]

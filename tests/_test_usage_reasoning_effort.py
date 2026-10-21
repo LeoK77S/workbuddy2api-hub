@@ -72,20 +72,21 @@ check("a row written without the field stays without it",
 
 # The body builder reads both client spellings and only fills in the model
 # default when the client asked for nothing, so a camelCase request keeps
-# "reasoningEffort" and never gains a snake-case key. Reading only the snake
-# spelling would report None for a request that really ran at "max".
-camel = P.build_upstream_body({"model": "deepseek-v4.1-flash",
+# "reasoningEffort" and never gains a snake-case key. A selectable model is
+# used here: the intl deepseek entry is pinned to "high" in this build, so any
+# level sent to it is rewritten and the spelling under test disappears.
+camel = P.build_upstream_body({"model": "hy3",
                                "messages": [{"role": "user", "content": "hi"}],
-                               "reasoningEffort": "max"})
+                               "reasoningEffort": "low"})
 check("a camelCase request keeps the camelCase key",
       "reasoning_effort" not in camel, camel.get("reasoning_effort"))
 check("the effective effort is read from the camelCase spelling",
-      P.upstream_effort_of(camel) == "max", P.upstream_effort_of(camel))
-snake = P.build_upstream_body({"model": "deepseek-v4.1-flash",
+      P.upstream_effort_of(camel) == "low", P.upstream_effort_of(camel))
+snake = P.build_upstream_body({"model": "hy3",
                                "messages": [{"role": "user", "content": "hi"}],
-                               "reasoning_effort": "low"})
+                               "reasoning_effort": "high"})
 check("the snake-case spelling still wins when the client sends it",
-      P.upstream_effort_of(snake) == "low", P.upstream_effort_of(snake))
+      P.upstream_effort_of(snake) == "high", P.upstream_effort_of(snake))
 quiet = P.build_upstream_body({"model": "deepseek-v4.1-flash",
                                "messages": [{"role": "user", "content": "hi"}]})
 check("a request that asks for nothing gets the model default",
@@ -152,11 +153,11 @@ def chat(model, **extra):
 
 # End to end over the real open_upstream(): the effort it hands back is the one
 # record_usage() writes, so a camelCase client gets its chip too.
-effort = open_with(chat("deepseek-v4.1-flash", reasoningEffort="max"))
-check("open_upstream hands back the camelCase effort", effort == "max", effort)
-P.record_usage("deepseek-v4.1-flash", USAGE, stream=False, elapsed_ms=900, effort=effort)
+effort = open_with(chat("hy3", reasoningEffort="low"))
+check("open_upstream hands back the camelCase effort", effort == "low", effort)
+P.record_usage("hy3", USAGE, stream=False, elapsed_ms=900, effort=effort)
 check("and that value lands on the usage row",
-      rows()[-1].get("reasoning_effort") == "max", rows()[-1].get("reasoning_effort"))
+      rows()[-1].get("reasoning_effort") == "low", rows()[-1].get("reasoning_effort"))
 
 # A model the catalog pins to one level runs there whether or not the client
 # says anything - and the gateway writes nothing into the body for it, so the

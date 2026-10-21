@@ -132,12 +132,7 @@ _JSON = r'''
     "supportsReasoning": true,
     "onlyReasoning": true,
     "reasoning": {
-      "defaultEffort": "high",
-      "supportedEfforts": [
-        "low",
-        "high",
-        "max"
-      ],
+      "effort": "high",
       "summary": "auto"
     },
     "contextWindow": {

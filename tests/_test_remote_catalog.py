@@ -201,21 +201,19 @@ class RemoteCatalogTests(unittest.TestCase):
     def test_live_reasoning_efforts_win_over_the_bundled_table(self):
         """The endpoint's reasoning block is the source of truth.
 
-        deepseek-v4.1-flash used to be pinned to low/high/max in code, which
-        silently overwrote whatever the live catalogue declared (the pin dates
-        from before the gateway called /v3/config at all).
+        glm-5.3 stands in for a selectable model here: deepseek-v4.1-flash is
+        deliberately pinned in this build, so its live block is overridden.
         """
         meta = dict(INTL_META)
-        meta["deepseek-v4.1-flash"] = {
-            "credits": "x0.00",
+        meta["glm-5.3"] = {
+            "credits": "x0.79",
             "reasoning": {"supportedEfforts": ["low", "medium", "high"],
                           "defaultEffort": "medium"},
         }
         P.fetch_remote_product_config = (
             lambda realm: (INTL_IDS, meta) if realm == "intl" else None)
         entries = dict(P.fetch_models("intl"))
-        item = P.model_entry("deepseek-v4.1-flash",
-                             entries["deepseek-v4.1-flash"])
+        item = P.model_entry("glm-5.3", entries["glm-5.3"])
         self.assertEqual(item["reasoning_efforts"], ["low", "medium", "high"])
         self.assertEqual(item["reasoning_default_effort"], "medium")
 
@@ -231,23 +229,22 @@ class RemoteCatalogTests(unittest.TestCase):
             entries = dict(P.fetch_models("intl"))
         finally:
             P.log = original_log
-        item = P.model_entry("deepseek-v4.1-flash",
-                             entries["deepseek-v4.1-flash"])
-        self.assertEqual(item["reasoning_efforts"], ["low", "high", "max"])
+        item = P.model_entry("hy3", entries["hy3"])
+        self.assertEqual(item["reasoning_efforts"], ["low", "high"])
         self.assertEqual(item["reasoning_default_effort"], "high")
         self.assertTrue(any("bundled table" in m for m in logged), logged)
 
     def test_bare_live_effort_keeps_the_model_selectable(self):
         """Issue #170: a bare live `effort` is the default, not a pin.
 
-        The endpoint answers with {"effort": "high"} for deepseek-v4.1-flash
-        while the bundled table knows the level is selectable. Taking the live
-        block at face value dropped supportedEfforts, so /v1/models advertised
-        the model as pinned to high - and every request was recorded at high
-        even when the client sent max, the level it was really forwarded with.
+        The endpoint answers with {"effort": "high"} for hy3 while the bundled
+        table knows the level is selectable. Taking the live block at face
+        value dropped supportedEfforts, so /v1/models advertised the model as
+        pinned to high - and every request was recorded at high even when the
+        client sent low, the level it was really forwarded with.
         """
         meta = dict(INTL_META)
-        meta["deepseek-v4.1-flash"] = {
+        meta["hy3"] = {
             "credits": "x0.00",
             "reasoning": {"effort": "high", "summary": "auto"},
         }
@@ -261,17 +258,15 @@ class RemoteCatalogTests(unittest.TestCase):
             entries = dict(P.fetch_models("intl"))
         finally:
             P.log = original_log
-        item = P.model_entry("deepseek-v4.1-flash",
-                             entries["deepseek-v4.1-flash"])
-        self.assertEqual(item["reasoning_efforts"], ["low", "high", "max"])
+        item = P.model_entry("hy3", entries["hy3"])
+        self.assertEqual(item["reasoning_efforts"], ["low", "high"])
         self.assertEqual(item["reasoning_default_effort"], "high")
         self.assertNotIn("reasoning_fixed_effort", item)
         # The level the request really ran at follows the client again.
-        self.assertIsNone(P.model_fixed_effort("deepseek-v4.1-flash"))
+        self.assertIsNone(P.model_fixed_effort("hy3"))
         self.assertEqual(
-            P.upstream_effort_of({"reasoning_effort": "max"},
-                                 "deepseek-v4.1-flash"),
-            "max")
+            P.upstream_effort_of({"reasoning_effort": "low"}, "hy3"),
+            "low")
         # A model the live catalogue really does pin is untouched: no snapshot
         # supportedEfforts to restore, so its bare effort still pins it.
         pinned = P.model_entry("gemini-3.5-flash", entries["gemini-3.5-flash"])

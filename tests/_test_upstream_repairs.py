@@ -102,7 +102,7 @@ check("an empty account still yields a key with a placeholder prefix",
       empty_uid["prompt_cache_key"].startswith("wb2a---"), empty_uid["prompt_cache_key"])
 
 print()
-print("[2] deepseek thinking: effort is filled in, explicit choices are honoured")
+print("[2] deepseek thinking: effort is filled in, unsupported choices collapse to the pin")
 
 
 def deepseek_body(model="deepseek-v4.1-flash", **extra):
@@ -122,13 +122,17 @@ check("the filled level matches the catalog default",
       bare.get("reasoning_effort") == (P.model_default_effort("deepseek-v4.1-flash") or "high"),
       bare.get("reasoning_effort"))
 
+# This build pins the intl model to "high", so the effort map rewrites any
+# other level to the pin before the request leaves. "none" below stays an
+# opt-out, not a level.
 explicit = deepseek_body(reasoning_effort="low")
-check("an explicit effort is left alone", explicit["reasoning_effort"] == "low")
+check("an explicit level the model is not offered collapses to its pin",
+      explicit["reasoning_effort"] == "high", explicit["reasoning_effort"])
 
 camel_explicit = deepseek_body(reasoningEffort="max")
-check("a camelCase explicit effort is left alone",
-      camel_explicit.get("reasoningEffort") == "max"
-      and "reasoning_effort" not in camel_explicit, camel_explicit.get("reasoning_effort"))
+check("a camelCase explicit level collapses the same way",
+      camel_explicit.get("reasoningEffort") == "high"
+      and "reasoning_effort" not in camel_explicit, camel_explicit.get("reasoningEffort"))
 
 disabled = deepseek_body(thinking={"type": "disabled"})
 check("thinking disabled is not re-enabled",
