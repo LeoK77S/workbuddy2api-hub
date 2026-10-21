@@ -36,7 +36,7 @@ SPECS = {
 }
 
 
-def reasoning_for(model):
+def reasoning_for(model, realm=None):
     return SPECS.get(model, {})
 
 

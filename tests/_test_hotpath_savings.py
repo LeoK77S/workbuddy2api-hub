@@ -188,9 +188,9 @@ class BuildUpstreamBodyReuseTests(unittest.TestCase):
         real_build = P.build_upstream_body
         real_pool = P.POOL
 
-        def counting(body):
+        def counting(body, realm=None):
             calls["n"] += 1
-            return real_build(body)
+            return real_build(body, realm=realm)
 
         P.build_upstream_body = counting
         # 没有池子：open_upstream 会在选号前把 body 建好、然后以

@@ -12976,7 +12976,7 @@ def client_effort_of(body):
     return body.get("reasoning_effort") or body.get("reasoningEffort")
 
 
-def upstream_effort_of(body, model=None):
+def upstream_effort_of(body, model=None, realm=None):
     """The reasoning effort a request actually runs at, or None when unknown.
 
     Resolved the way the upstream will apply it:
@@ -12995,7 +12995,7 @@ def upstream_effort_of(body, model=None):
     """
     given = client_effort_of(body)
     if model:
-        fixed = model_fixed_effort(model)
+        fixed = model_fixed_effort(model, realm=realm)
         if fixed:
             return fixed
     thinking = (body or {}).get("thinking") if isinstance(body, dict) else None
@@ -13006,7 +13006,7 @@ def upstream_effort_of(body, model=None):
         return "none"
     if given:
         return given
-    return model_default_effort(model) if model else None
+    return model_default_effort(model, realm=realm) if model else None
 
 
 def background_request_message(reason):
@@ -13086,11 +13086,11 @@ def apply_prompt_mode(messages):
     return messages
 
 
-def build_upstream_body(payload):
+def build_upstream_body(payload, realm=None):
     model = payload.get("model") or ""
     # Map an unsupported level before anything below reads the effort, so the
     # thinking backfill and the logged level describe what will actually run.
-    payload = map_reasoning_effort(dict(payload), model)
+    payload = map_reasoning_effort(dict(payload), model, realm=realm)
     # Resolve the effective thinking state before the backfill below: while
     # thinking is on, the upstream requires reasoning_content on every
     # assistant message, whether or not the client kept a reasoning trace.
@@ -13172,7 +13172,7 @@ def build_upstream_body(payload):
             if not effort:
                 mode = default_reasoning_effort_mode()
                 if mode != "off":
-                    chosen = model_default_effort(model)
+                    chosen = model_default_effort(model, realm=realm)
                     if not chosen and mode == "high":
                         chosen = "high"
                     if chosen:
@@ -13195,7 +13195,7 @@ def encode_upstream_body(body):
                       separators=(",", ":")).encode("utf-8")
 
 
-def model_catalog_meta(model):
+def model_catalog_meta(model, realm=None):
     """The catalog metadata dict for a model, or {}.
 
     Read from the same merged catalog that /v1/models advertises.
@@ -13207,7 +13207,7 @@ def model_catalog_meta(model):
     if not model:
         return {}
     try:
-        realm = detect_model_realm(model) or CURRENT_REALM
+        realm = realm or detect_model_realm(model) or CURRENT_REALM
         entries = (_models_cache.get(realm) or {}).get("data")
         if not entries:
             name = "STATIC_CN_MODELS" if realm == "cn" else "STATIC_INTL_MODELS"
@@ -13222,9 +13222,9 @@ def model_catalog_meta(model):
     return {}
 
 
-def model_reasoning_meta(model):
+def model_reasoning_meta(model, realm=None):
     """The catalog's reasoning block for a model, or {}."""
-    return model_catalog_meta(model).get("reasoning") or {}
+    return model_catalog_meta(model, realm=realm).get("reasoning") or {}
 
 
 def model_default_max_output_tokens(model):
@@ -13240,9 +13240,9 @@ def model_default_max_output_tokens(model):
     return None
 
 
-def model_default_effort(model):
+def model_default_effort(model, realm=None):
     """The effort the catalog applies when the client asks for none, or None."""
-    effort = model_reasoning_meta(model).get("defaultEffort")
+    effort = model_reasoning_meta(model, realm=realm).get("defaultEffort")
     return effort.strip() if isinstance(effort, str) and effort.strip() else None
 
 
@@ -13273,7 +13273,7 @@ def _fallback_effort(reasoning):
     return None
 
 
-def map_reasoning_effort(body, model):
+def map_reasoning_effort(body, model, realm=None):
     """Rewrite an effort the model does not accept to its default level.
 
     A client with a fixed level picker (low/medium/high) keeps sending levels
@@ -13302,7 +13302,7 @@ def map_reasoning_effort(body, model):
     requested = raw.strip()
     if not requested:
         return body
-    reasoning = model_reasoning_meta(model)
+    reasoning = model_reasoning_meta(model, realm=realm)
     if not reasoning:
         return body
     efforts = reasoning.get("supportedEfforts") or []
@@ -13353,7 +13353,7 @@ def default_reasoning_effort_mode():
     return "high"
 
 
-def model_fixed_effort(model):
+def model_fixed_effort(model, realm=None):
     """The effort the catalog pins a model to, or None when it is selectable.
 
     reasoning.effort without supportedEfforts means the model always runs at
@@ -13363,7 +13363,7 @@ def model_fixed_effort(model):
     whatever else its block carries - an `effort` beside it is the default, not
     a pin.
     """
-    reasoning = model_reasoning_meta(model)
+    reasoning = model_reasoning_meta(model, realm=realm)
     if reasoning.get("supportedEfforts"):
         return None
     effort = reasoning.get("effort")
@@ -14219,7 +14219,7 @@ def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=No
     # 个 payload 再建一遍，大请求实测白付 ~13.6ms/请求。403 降级重试时仍按
     # payload 重建（degrade 会切换 prompt 模式，必须拿到新 body）。
     upstream_body = (prebuilt_body if prebuilt_body is not None
-                     else build_upstream_body(payload))
+                     else build_upstream_body(payload, realm=realm))
     # PATCHED-BY-OPS: 客户端未提供会话标识时，用对话稳定前缀兜底。
     # 位置放在 build_upstream_body 之后，保证键与真正发往上游的消息一致
     # （该函数可能在最前面插入 SYSTEM_PROMPT）。affinity_page 只在超限对话上
@@ -14420,7 +14420,7 @@ def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=No
             # The third element is the reasoning effort this request ran at: the
             # body is rebuilt per attempt, but the effort is a property of the
             # model and the request, and the callers record it on the usage row.
-            return resp, account, upstream_effort_of(upstream_body, model)
+            return resp, account, upstream_effort_of(upstream_body, model, realm=realm)
         except urllib.error.HTTPError as exc:
             if exc.code == 429:
                 try:
@@ -14535,7 +14535,7 @@ def open_upstream(payload, session_key=None, target_realm=None, prebuilt_body=No
                         and prompt_mode_config().get("mode") in ("passthrough", "append")):
                     PROMPT_DEGRADE.trigger()
                     degraded_retried = True
-                    upstream_body = build_upstream_body(payload)
+                    upstream_body = build_upstream_body(payload, realm=realm)
                     tried.discard(account.uid)
                     log("upstream 403 (content review) -> degraded prompt retry")
                     continue
@@ -21618,7 +21618,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._handle_responses(payload)
         # Diagnostics: what the client actually asked for, and what we forward.
         # Only the knobs that change behaviour are logged - never message text.
-        forwarded = build_upstream_body(payload)
+        explicit_realm = self._request_realm()
+        req_realm = explicit_realm or CURRENT_REALM
+        forwarded = build_upstream_body(payload, realm=req_realm)
         given = client_effort_of(payload) or payload.get("reasoning") \
             or payload.get("thinking") or payload.get("enable_thinking")
         log(
@@ -21626,7 +21628,7 @@ class Handler(BaseHTTPRequestHandler):
             % (
                 payload.get("model"),
                 given,
-                upstream_effort_of(forwarded, payload.get("model")),
+                upstream_effort_of(forwarded, payload.get("model"), realm=req_realm),
                 bool(payload.get("stream")),
                 len(forwarded.get("messages") or []),
                 key_label(self._key_id()) or "-",
@@ -21638,8 +21640,6 @@ class Handler(BaseHTTPRequestHandler):
         model = payload.get("model") or "hy4-preview"
         t_start = time.time()
         try:
-            explicit_realm = self._request_realm()
-            req_realm = explicit_realm or CURRENT_REALM
             blocked = self._cross_realm_error(payload.get("model"), req_realm)
             if blocked:
                 return self._error(400, blocked, "invalid_request_error")

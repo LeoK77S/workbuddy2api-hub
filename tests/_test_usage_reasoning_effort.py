@@ -87,6 +87,17 @@ snake = P.build_upstream_body({"model": "hy3",
                                "reasoning_effort": "high"})
 check("the snake-case spelling still wins when the client sends it",
       P.upstream_effort_of(snake) == "high", P.upstream_effort_of(snake))
+
+# The local pin is scoped to the intl catalogue: the same model on the cn
+# exit keeps the levels its own payload declares.
+intl_max = P.map_reasoning_effort({"reasoning_effort": "max"},
+                                  "deepseek-v4.1-flash", realm="intl")
+check("the intl pin rewrites max to high",
+      intl_max.get("reasoning_effort") == "high", intl_max.get("reasoning_effort"))
+cn_max = P.map_reasoning_effort({"reasoning_effort": "max"},
+                                "deepseek-v4.1-flash", realm="cn")
+check("the cn catalogue keeps max",
+      cn_max.get("reasoning_effort") == "max", cn_max.get("reasoning_effort"))
 quiet = P.build_upstream_body({"model": "deepseek-v4.1-flash",
                                "messages": [{"role": "user", "content": "hi"}]})
 check("a request that asks for nothing gets the model default",
